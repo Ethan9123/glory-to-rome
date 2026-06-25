@@ -168,8 +168,54 @@ body{
 /* 参考卡overlay */
 .refimg{max-width:100%;max-height:78vh;border-radius:10px;box-shadow:var(--shadow)}
 
+/* ---------- 新手教程 ---------- */
+.tut-btn{background:linear-gradient(180deg,#d8b15a,#a9863a);color:#241c08;margin-top:6px;font-size:16px}
+.tut-modal{max-width:780px}
+.tut-modal h2{display:flex;justify-content:space-between;align-items:baseline}
+.tut-step{font-size:13px;color:var(--muted);font-weight:400}
+.tut-slide{min-height:330px}
+.tut-slide h3{color:var(--gold);margin:0 0 12px;font-size:21px}
+.tut-body{font-size:15px;line-height:1.9;color:var(--ink)}
+.tut-body b{color:var(--gold)}
+.tut-body .big-goal{font-size:17px;background:#3a2e12;border:1px solid var(--gold);border-radius:10px;
+  padding:12px 16px;margin:12px 0;line-height:1.7}
+.tut-body ul{padding-left:20px;margin:8px 0}
+.tut-body li{margin:5px 0}
+.tut-cards{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:14px 0}
+.tut-cards .card{cursor:default}
+.tut-cards .cap{font-size:11px;color:var(--muted);text-align:center;margin-top:3px}
+.tut-cardwrap{display:flex;flex-direction:column;align-items:center}
+.rolelegend{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:7px;margin:12px 0}
+.rolerow{display:flex;align-items:center;gap:8px;background:#0003;border:1px solid var(--line);border-radius:8px;padding:6px 9px}
+.rolepill{width:14px;height:14px;border-radius:4px;flex:0 0 auto;border:1px solid #0006}
+.rolerow .rname{font-weight:700;font-size:13px}
+.rolerow .rdesc{font-size:12px;color:var(--muted)}
+.zonemap{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.zonecell{background:#0003;border:1px solid var(--line);border-radius:9px;padding:9px 11px}
+.zonecell .zt{font-weight:800;color:var(--gold);font-size:13px}
+.zonecell .zd{font-size:12px;color:var(--muted);margin-top:2px;line-height:1.5}
+.flow{display:flex;flex-direction:column;gap:7px;margin:10px 0}
+.flowstep{display:flex;gap:10px;align-items:flex-start;background:#0003;border-left:3px solid var(--gold);
+  border-radius:6px;padding:8px 11px}
+.flowstep .num{background:var(--gold);color:#241c08;width:22px;height:22px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex:0 0 auto}
+.flowstep .ft{font-size:13.5px;line-height:1.55}
+.flowstep .ft b{color:var(--ink);background:#0000;border-bottom:1px dashed var(--gold)}
+.tut-nav{display:flex;justify-content:space-between;align-items:center;margin-top:16px;gap:10px}
+.tut-dots{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;flex:1}
+.tut-dot{width:9px;height:9px;border-radius:50%;background:#5a4c34;cursor:pointer}
+.tut-dot.on{background:var(--gold);transform:scale(1.25)}
+
+/* ---------- 教学提示条 ---------- */
+.coach{background:linear-gradient(180deg,#3c3015,#322813);border:1px solid var(--gold);border-radius:9px;
+  padding:8px 12px;margin-bottom:8px;color:#f3e4ba;font-size:13.5px;display:flex;gap:9px;align-items:center;line-height:1.5}
+.coach .ico{font-size:18px;flex:0 0 auto}
+.coach .x{margin-left:auto;cursor:pointer;color:var(--muted);font-size:16px;flex:0 0 auto}
+.coach .x:hover{color:var(--ink)}
+
 @media(max-width:680px){
   .name-inputs{grid-template-columns:1fr}
   #playersZone{grid-template-columns:1fr}
   .hand .card.img{width:108px;height:84px}
+  .zonemap{grid-template-columns:1fr}
 }

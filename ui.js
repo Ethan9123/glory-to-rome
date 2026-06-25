@@ -17,7 +17,9 @@
     beginner: false,
     sel: [],                    // 带头/跟随时选中的手牌下标
     act: null,                  // 动作阶段子状态
-    toast: ''
+    toast: '',
+    coach: true,                // 教学提示条
+    tut: 0                      // 教程当前页
   };
 
   /* ------------------ 启动界面 ------------------ */
@@ -47,6 +49,7 @@
     $('#game').classList.remove('hidden');
     render();
   };
+  $('#tutorialBtn').onclick = () => showTutorial(0);
   initSetup();
 
   /* ------------------ 顶部按钮 ------------------ */
@@ -108,6 +111,7 @@
     renderPlayers();
     renderControl();
     renderHand();
+    renderCoach();
     // 结束
     if (s.over) { showGameOver(); }
     // 交接遮罩
@@ -836,6 +840,207 @@
     modal.appendChild(btn('关闭', 'btn ghost', () => ov.classList.add('hidden')));
     ov.innerHTML = ''; ov.appendChild(modal);
   }
+  /* ================== 新手教程 ================== */
+  function tutSlide(title, html) {
+    const s = el('div', 'tut-slide');
+    s.appendChild(el('h3', '', title));
+    const b = el('div', 'tut-body'); b.innerHTML = html; s.appendChild(b);
+    return s;
+  }
+  function roleLegend() {
+    const wrap = el('div', 'rolelegend');
+    [['Laborer', '劳工', '从公共区拿材料'], ['Craftsman', '工匠', '用手牌盖建筑'],
+     ['Architect', '建筑师', '用库存盖建筑'], ['Legionary', '军团兵', '向邻居抢材料'],
+     ['Merchant', '商人', '卖材料赚分'], ['Patron', '资助人', '雇随从帮你行动']
+    ].forEach(([role, zh, desc]) => {
+      const m = matForRole(role), color = MATERIALS[m].color;
+      const r = el('div', 'rolerow');
+      r.innerHTML = `<span class="rolepill" style="background:${color}"></span>
+        <span><span class="rname">${zh} ${role}</span><br><span class="rdesc">${MATERIALS[m].zh} · ${desc}</span></span>`;
+      wrap.appendChild(r);
+    });
+    return wrap;
+  }
+  function cardExamples(list) {
+    const row = el('div', 'tut-cards');
+    list.forEach(([name, cap]) => {
+      const wrap = el('div', 'tut-cardwrap');
+      wrap.appendChild(renderCard(name, {}));
+      wrap.appendChild(el('div', 'cap', cap));
+      row.appendChild(wrap);
+    });
+    return row;
+  }
+  function zoneMap() {
+    const wrap = el('div', 'zonemap');
+    [['手牌 Hand', '你能打出的牌。'],
+     ['随从 Clientele', '帮你额外行动的人（数量上限 = 影响力）。'],
+     ['库存 Stockpile', '囤着的材料，没有上限。'],
+     ['金库 Vault', '卖掉的材料 = 分数（上限 = 影响力，且对所有人保密）。'],
+     ['影响力 Influence', '从 2 开始；盖好建筑就增加。它决定随从/金库上限，并直接计为分数。'],
+     ['建筑 Buildings', '在建的地基 + 已完成的建筑（提供专属能力与分数）。']
+    ].forEach(([t, d]) => { const c = el('div', 'zonecell'); c.innerHTML = `<div class="zt">${t}</div><div class="zd">${d}</div>`; wrap.appendChild(c); });
+    return wrap;
+  }
+  function flowSteps(steps) {
+    const w = el('div', 'flow');
+    steps.forEach((t, i) => { const s = el('div', 'flowstep'); s.innerHTML = `<span class="num">${i + 1}</span><span class="ft">${t}</span>`; w.appendChild(s); });
+    return w;
+  }
+
+  const TUT = [
+    () => tutSlide('欢迎来到罗马！🏛️', `
+      <p>公元 64 年，罗马大火，全城需要重建。你扮演一位罗马贵族，靠<b>帮忙重建</b>来积累<b>声望与财富</b>。</p>
+      <div class="big-goal">🎯 <b>一句话目标</b>：游戏结束时，谁的<b>分数（胜利点）</b>最高谁就赢。<br>
+        分数主要来自：<b>影响力</b> ＋ <b>卖材料赚的钱（金库）</b> ＋ <b>盖好的建筑</b>。</div>
+      <p>2–5 人轮流玩。规则看着多，但跟着这个教程一页页走，几分钟就能上手。点「下一页 ›」开始。</p>`),
+
+    () => { const s = tutSlide('最关键的一点：一张牌有 5 种身份', `
+      <p>游戏里几乎所有牌都是 <b>Order 牌</b>。同一张牌，你要决定它<b>变成什么</b> —— 这是本游戏最有趣的取舍：</p>
+      <ul>
+        <li>① <b>角色指令</b> —— 打出去，决定你这一手做什么</li>
+        <li>② <b>随从 Client</b> —— 以后每个回合帮你多行动一次</li>
+        <li>③ <b>材料 Material</b> —— 用来盖建筑</li>
+        <li>④ <b>建筑 Building</b> —— 盖好后给你专属能力 ＋ 分数</li>
+        <li>⑤ <b>金钱 Vault</b> —— 把材料卖掉换成分数</li>
+      </ul>
+      <p><b>牌的颜色 = 它代表的角色</b>。记住这 6 个颜色，就懂了一半 👇</p>`);
+      s.appendChild(roleLegend()); return s; },
+
+    () => { const s = tutSlide('六种角色长什么样', `
+      <p>下面每张牌的<b>颜色和左边的角色名</b>就告诉你它是什么角色。鼠标悬停可放大看清功能：</p>`);
+      s.appendChild(cardExamples([['Bar', '黄=劳工'], ['Dock', '绿=工匠'], ['Tower', '灰=建筑师'], ['School', '红=军团兵'], ['Catacomb', '蓝=商人'], ['Statue', '紫=资助人'], ['Jack', 'Jack百搭']]));
+      const b = el('div', 'tut-body'); b.innerHTML = `<p style="margin-top:10px"><b>Jack</b> 是百搭牌，可以当任意角色（不能当思考者）。用完会还回去。</p>`;
+      s.appendChild(b); return s; },
+
+    () => { const s = tutSlide('你的桌面（Camp）有哪些区域', `
+      <p>每个玩家面前都有一块“营地”，分成几个区域。看懂它们，就看懂了局势：</p>`);
+      s.appendChild(zoneMap());
+      const b = el('div', 'tut-body'); b.innerHTML = `<p style="margin-top:8px">💡 <b>影响力</b>是核心：它既是<b>分数</b>，又决定你能<b>养多少随从</b>、<b>金库能放多少</b>。盖建筑 = 同时变强又得分。</p>`;
+      s.appendChild(b); return s; },
+
+    () => { const s = tutSlide('一个回合是怎么走的', `<p>每回合有一名<b>带头者</b>（轮流当）。流程是：</p>`);
+      s.appendChild(flowSteps([
+        '<b>带头者</b>二选一：① <b>带头</b>——打出一张牌，决定本回合<b>所有人</b>的角色；或 ② <b>思考</b>——不带头，抽牌补满手牌，回合直接结束。',
+        '其他人按顺时针，各自二选一：<b>跟随</b>（打出<b>同色</b>的牌）或 <b>思考</b>（抽牌）。',
+        '然后从带头者起、顺时针，每人执行这个角色的动作。',
+        '动作次数 = <b>带头/跟随 1 次</b> ＋ <b>每个“该角色的随从”再 +1 次</b>。'
+      ]));
+      const b = el('div', 'tut-body'); b.innerHTML = `<p style="margin-top:8px">⭐ <b>重点</b>：就算你这回合选了“思考”，你的<b>随从照样会行动</b>！所以随从越多，滚雪球越快。</p>`;
+      s.appendChild(b); return s; },
+
+    () => tutSlide('六种角色分别做什么', `
+      <ul>
+        <li><b>🟡 劳工 Laborer</b>：从中间的<b>供应区</b>拿一张材料，放进你的库存。</li>
+        <li><b>🟢 工匠 Craftsman</b>：用<b>手牌</b>盖建筑（开新地基，或往地基里加材料）。</li>
+        <li><b>⚪ 建筑师 Architect</b>：用<b>库存</b>里的材料盖建筑。</li>
+        <li><b>🔴 军团兵 Legionary</b>：指定一种材料，从供应区和<b>左右邻居手里</b>各抢一张。</li>
+        <li><b>🔵 商人 Merchant</b>：把库存里的材料<b>卖进金库</b>（= 分数）。</li>
+        <li><b>🟣 资助人 Patron</b>：从供应区雇一个<b>随从</b>（以后每回合帮你多行动）。</li>
+        <li><b>⚫ 思考者 Thinker</b>（就是“思考”）：抽牌 —— 补满手牌 / 多抽 1 张 / 拿 1 张 Jack。</li>
+      </ul>`),
+
+    () => { const s = tutSlide('怎么盖一座建筑（最主要的得分方式）', `<p>盖建筑分三步，盖好后<b>立刻 +影响力</b>并永久获得它的能力：</p>`);
+      s.appendChild(flowSteps([
+        '<b>奠基</b>：用工匠/建筑师，打出一张牌当“地基”，并拿一张<b>同色</b>的“场地(Site)”垫在下面。',
+        '<b>加材料</b>：往地基里放<b>同色</b>材料。工匠从<b>手牌</b>放，建筑师从<b>库存</b>放。',
+        '<b>完成</b>：材料数量够了就完成！建筑的<b>价值(1~3)</b>= 需要的材料数，也是它给的影响力。'
+      ]));
+      const b = el('div', 'tut-body'); b.innerHTML = `<p style="margin-top:8px">例：一座价值 1 的<b>木</b>建筑（如 Palisade），只要放 <b>1 个木材料</b>就完成，+1 影响力并获得“免疫军团兵”的能力。</p>`;
+      s.appendChild(b); return s; },
+
+    () => tutSlide('游戏什么时候结束 & 怎么算赢', `
+      <p><b>满足任意一条，游戏立即结束：</b></p>
+      <ul>
+        <li>牌库抽空，或 中间的“城内场地”用完</li>
+        <li>有人完成 <b>Catacomb</b>（蓝色，会直接结束游戏）</li>
+        <li>有人完成 <b>Forum</b> 且<b>集齐每种角色的随从</b> → 该玩家<b>立即获胜</b></li>
+        <li>其他人一致同意向某人投降</li>
+      </ul>
+      <div class="big-goal">🏆 <b>最终计分</b> ＝ 影响力 ＋ 金库里材料的价值 ＋ 商人奖励（每种材料金库最多者 +3）＋ 建筑加分（Statue +3、Wall 每 2 材料 +1）。<br>
+        分最高者获胜；平手则<b>手牌多</b>的人赢。</div>`),
+
+    () => tutSlide('新手 4 条建议 💡', `
+      <ul>
+        <li><b>别只盯一种角色</b>：均衡发展，手里各色牌都留一点更灵活。</li>
+        <li><b>早点盖 1–2 座便宜建筑</b>（价值 1 或 2）：快速拿到影响力和能力，滚起来。</li>
+        <li><b>随从是雪球核心</b>：用资助人多雇随从，但注意别超过影响力上限。</li>
+        <li><b>不知道做什么就“思考”</b>：补满手牌、保留更多选择，永远不亏。</li>
+      </ul>
+      <p>真正的乐趣在于把“一张牌的 5 种用途”和“建筑能力的组合”玩出花来 —— 多玩两局就有感觉了。</p>`),
+
+    () => tutSlide('准备好了！开始你的第一局 ▶', `
+      <ul>
+        <li>游戏中随时点顶栏 <b>「参考卡」</b> 复习角色与流程，点 <b>「日志」</b> 看记录。</li>
+        <li><b>鼠标悬停任意卡牌</b> 可放大并看到中文功能说明。</li>
+        <li>开局时屏幕会提示“把设备交给某玩家”，<b>轮流操作</b>、互不偷看手牌。</li>
+        <li>左下角的 <b>💡 教学提示</b> 会一步步告诉你现在该做什么（可在“菜单”里关闭）。</li>
+      </ul>
+      <p>建议第一局选 <b>2 人</b> 轻松上手。关掉这个教程，填好名字，点<b>「开始游戏」</b>吧！祝你 —— <b>Glory to Rome!</b> 🏛️</p>`)
+  ];
+
+  function showTutorial(idx) { ui.tut = idx || 0; $('#overlay').classList.remove('hidden'); renderTutorial(); }
+  function renderTutorial() {
+    const ov = $('#overlay'), total = TUT.length, i = Math.max(0, Math.min(ui.tut, total - 1));
+    ui.tut = i;
+    const modal = el('div', 'modal tut-modal');
+    modal.appendChild(el('h2', '', `📖 新手教程 <span class="tut-step">${i + 1} / ${total}</span>`));
+    modal.appendChild(TUT[i]());
+    const nav = el('div', 'tut-nav');
+    const prev = btn('‹ 上一页', 'btn ghost', () => { ui.tut--; renderTutorial(); }); if (i === 0) prev.disabled = true;
+    const dots = el('div', 'tut-dots');
+    for (let k = 0; k < total; k++) { const d = el('div', 'tut-dot' + (k === i ? ' on' : '')); d.onclick = () => { ui.tut = k; renderTutorial(); }; dots.appendChild(d); }
+    const next = (i < total - 1)
+      ? btn('下一页 ›', 'btn primary', () => { ui.tut++; renderTutorial(); })
+      : btn(G ? '继续游戏 ▶' : '知道了，去开始 ▶', 'btn gold', () => ov.classList.add('hidden'));
+    nav.appendChild(prev); nav.appendChild(dots); nav.appendChild(next);
+    modal.appendChild(nav);
+    const foot = el('div', ''); foot.style.cssText = 'text-align:center;margin-top:8px';
+    foot.appendChild(btn('关闭教程', 'btn ghost', () => ov.classList.add('hidden')));
+    modal.appendChild(foot);
+    ov.innerHTML = ''; ov.appendChild(modal);
+  }
+
+  /* ================== 教学提示条 ================== */
+  function renderCoach() {
+    const coach = $('#coach'); if (!coach || !G) return;
+    const tip = ui.coach ? coachTip() : null;
+    if (tip) {
+      coach.classList.remove('hidden');
+      coach.innerHTML = `<span class="ico">💡</span><span>${tip}</span><span class="x" title="关闭提示（可在菜单重新开启）">✕</span>`;
+      coach.querySelector('.x').onclick = () => { ui.coach = false; coach.classList.add('hidden'); };
+    } else coach.classList.add('hidden');
+  }
+  function coachTip() {
+    const s = G.state;
+    if (s.over) return null;
+    if (s.pending) {
+      const t = s.pending.type;
+      if (t === 'thinker') return '思考：从下面选一种抽牌方式（一般选「补满手牌」最稳）。';
+      if (t === 'patronBonus') return '你有 Bar / Aqueduct：本次资助人动作还能额外多雇一个随从。';
+      if (t === 'basilicaBonus') return '你有 Basilica：可以再从手牌多卖一张材料进金库。';
+      if (t === 'prison') return 'Prison：点对手一座已完成的建筑，把它的能力抢过来。';
+      if (t === 'fountain') return 'Fountain：决定这张从牌库翻出来的牌怎么用（奠基 / 加料 / 收手牌）。';
+      return null;
+    }
+    if (s.phase === 'lead') return '你是带头者：点一张手牌 →（下方出现）点「带头【角色】」决定本回合大家做什么；没有想做的就点「思考」抽牌。';
+    if (s.phase === 'follow') return `跟随阶段：想做【${ROLE_ZH[s.ledRole]}】就出一张<b>同色</b>牌跟随；否则点「思考」抽牌（你的随从稍后照样会行动）。`;
+    if (s.phase === 'actions') {
+      const r = G.currentRole();
+      const tips = {
+        Laborer: '劳工：点供应区一张材料，拿进你的库存。',
+        Craftsman: '工匠：用手牌「奠基」开一座新建筑，或给在建建筑「加材料/完成」。',
+        Architect: '建筑师：用<b>库存</b>的材料盖建筑（奠基出手牌、加料用库存）。',
+        Legionary: '军团兵：选一种你<b>手里有</b>的材料，向供应区和左右邻居索取。',
+        Merchant: '商人：点<b>库存</b>里的材料卖进金库，换成分数。',
+        Patron: '资助人：点供应区一张牌雇成随从（以后每回合多行动一次）。',
+        Thinker: '额外思考：抽牌。'
+      };
+      return (tips[r] || '') + ' 做完后可点「结束我的动作」。';
+    }
+    return null;
+  }
+
   // 调试钩子（仅供自动化测试用，不影响正常游戏）
   window.__GTR_DEBUG = { getG: () => G, render, setAct: (a) => { ui.act = a; } };
 
@@ -846,6 +1051,12 @@
     const t = el('label', '', `<input type="checkbox" ${ui.handoffEnabled ? 'checked' : ''}> 启用“交接设备”遮罩（隐藏手牌）`);
     t.querySelector('input').onchange = e => { ui.handoffEnabled = e.target.checked; };
     body.appendChild(t);
+    body.appendChild(el('div', '', '<div style="height:8px"></div>'));
+    const cch = el('label', '', `<input type="checkbox" ${ui.coach ? 'checked' : ''}> 显示「💡 教学提示」（新手提示条）`);
+    cch.querySelector('input').onchange = e => { ui.coach = e.target.checked; render(); };
+    body.appendChild(cch);
+    body.appendChild(el('div', '', '<div style="height:10px"></div>'));
+    body.appendChild(btn('📖 打开新手教程', 'btn gold', () => { ov.classList.add('hidden'); showTutorial(0); }));
     body.appendChild(el('p', '', '<br><b>投降</b>：其他所有玩家投降给某人，则其立即获胜。'));
     const row = el('div', 'row');
     G.state.players.forEach(p => row.appendChild(btn('投降给 ' + p.name, 'btn', () => { ov.classList.add('hidden'); G.surrender(p.id); render(); })));
