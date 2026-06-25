@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Glory to Rome · 荣耀罗马（电子版）</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ 开始界面 ============ -->
+<div id="setup" class="screen">
+  <div class="setup-box">
+    <h1>GLORY TO ROME</h1>
+    <p class="subtitle">荣耀罗马 · 本地热座电子版</p>
+    <div class="setup-row">
+      <label>玩家人数</label>
+      <div id="playerCountBtns" class="count-btns"></div>
+    </div>
+    <div id="nameInputs" class="name-inputs"></div>
+    <div class="setup-row">
+      <label><input type="checkbox" id="optBeginner"> 训练模式（忽略建筑功能，仅核心机制）</label>
+    </div>
+    <button id="startBtn" class="big-btn">开始游戏</button>
+    <p class="hint">提示：荣耀罗马是一款“卡牌一物多用”的策略游戏 —— 同一张牌可作为<b>角色指令、随从、材料、建筑或金钱</b>。
+       本电子版实现核心 40 建筑（Republic 规则）。</p>
+  </div>
+</div>
+
+<!-- ============ 游戏界面 ============ -->
+<div id="game" class="screen hidden">
+  <header id="topbar">
+    <div class="tb-left">
+      <span class="tb-title">GLORY TO ROME</span>
+      <span id="turnInfo" class="tb-turn"></span>
+    </div>
+    <div class="tb-mid" id="phaseBanner"></div>
+    <div class="tb-right">
+      <span class="tb-stat">牌库 <b id="deckCount">0</b></span>
+      <span class="tb-stat">Jack <b id="jackCount">0</b></span>
+      <button id="refBtn" class="mini-btn">参考卡</button>
+      <button id="logBtn" class="mini-btn">日志</button>
+      <button id="menuBtn" class="mini-btn">菜单</button>
+    </div>
+  </header>
+
+  <div id="sitesBar"></div>
+
+  <main id="board">
+    <section id="poolZone">
+      <h3 class="zone-title">供应区 Pool <span id="poolCount" class="badge"></span></h3>
+      <div id="pool" class="cardrow"></div>
+    </section>
+    <section id="playersZone"></section>
+  </main>
+
+  <footer id="control">
+    <div id="prompt" class="prompt"></div>
+    <div id="actionbar" class="actionbar"></div>
+    <div id="handZone">
+      <h3 class="zone-title">手牌 <span id="handOwner"></span></h3>
+      <div id="hand" class="cardrow hand"></div>
+    </div>
+  </footer>
+</div>
+
+<!-- 叠加层：交接 / 弹窗 / 结算 -->
+<div id="overlay" class="overlay hidden"></div>
+<div id="logModal" class="overlay hidden"></div>
+
+<script src="config.js"></script>
+<script src="cards.js"></script>
+<script src="engine.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>

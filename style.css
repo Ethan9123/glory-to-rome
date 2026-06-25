@@ -1,0 +1,175 @@
+/* ===== Glory to Rome 电子版 样式 ===== */
+:root{
+  --bg:#1c1814; --panel:#262019; --panel2:#2f2820; --ink:#f1e7d4; --muted:#b3a489;
+  --gold:#d8b15a; --red:#a8321f; --line:#473b2c; --good:#5fa86a; --warn:#cf8a2e;
+  --shadow:0 4px 14px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:radial-gradient(1200px 700px at 50% -10%,#332a20,#1c1814 60%);
+  color:var(--ink); font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif; font-size:14px;
+}
+.hidden{display:none !important}
+.screen{min-height:100vh}
+
+/* ---------- 开始界面 ---------- */
+#setup{display:flex;align-items:center;justify-content:center;padding:24px}
+.setup-box{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  padding:30px 34px;max-width:560px;width:100%;box-shadow:var(--shadow)}
+.setup-box h1{margin:0;font-size:34px;letter-spacing:3px;color:var(--gold);text-align:center;text-shadow:0 2px 0 #0006}
+.subtitle{text-align:center;color:var(--muted);margin:4px 0 22px}
+.setup-row{margin:14px 0;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.setup-row > label{min-width:80px;color:var(--muted)}
+.count-btns{display:flex;gap:8px}
+.count-btns button{width:42px;height:42px;border-radius:8px;border:1px solid var(--line);
+  background:var(--panel2);color:var(--ink);font-size:16px;cursor:pointer}
+.count-btns button.active{background:var(--gold);color:#1c1814;border-color:var(--gold);font-weight:700}
+.name-inputs{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
+.name-inputs input{padding:9px 11px;border-radius:8px;border:1px solid var(--line);
+  background:var(--panel2);color:var(--ink);font-size:14px}
+.big-btn{margin-top:18px;width:100%;padding:14px;border:none;border-radius:10px;
+  background:linear-gradient(180deg,#c63d27,#8f2818);color:#fff;font-size:18px;font-weight:700;
+  letter-spacing:2px;cursor:pointer;box-shadow:var(--shadow)}
+.big-btn:hover{filter:brightness(1.08)}
+.hint{margin-top:18px;color:var(--muted);font-size:12px;line-height:1.7}
+
+/* ---------- 顶栏 ---------- */
+#topbar{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:8px 16px;background:linear-gradient(180deg,#2c241a,#221c15);
+  border-bottom:2px solid var(--gold);position:sticky;top:0;z-index:20}
+.tb-title{color:var(--gold);font-weight:800;letter-spacing:2px}
+.tb-turn{margin-left:12px;color:var(--muted)}
+.tb-mid{font-weight:700;color:var(--ink);background:#0003;padding:5px 14px;border-radius:20px;border:1px solid var(--line)}
+.tb-right{display:flex;align-items:center;gap:10px}
+.tb-stat{color:var(--muted);font-size:13px}
+.tb-stat b{color:var(--ink);font-size:15px}
+.mini-btn{padding:6px 12px;border-radius:7px;border:1px solid var(--line);background:var(--panel2);
+  color:var(--ink);cursor:pointer;font-size:13px}
+.mini-btn:hover{border-color:var(--gold)}
+
+/* ---------- 场地条 ---------- */
+#sitesBar{display:flex;gap:8px;padding:8px 16px;background:#1a150f;border-bottom:1px solid var(--line);
+  overflow-x:auto;align-items:center}
+.site-chip{display:flex;flex-direction:column;align-items:center;min-width:78px;
+  border:1px solid var(--line);border-radius:8px;padding:5px 8px;background:var(--panel2)}
+.site-chip .sname{font-size:11px;font-weight:700}
+.site-chip .scount{font-size:12px;color:var(--muted)}
+.site-chip .sval{font-size:10px;color:var(--gold)}
+
+/* ---------- 主区 ---------- */
+#board{padding:12px 16px 4px}
+.zone-title{margin:6px 0;font-size:13px;color:var(--muted);font-weight:700;letter-spacing:1px}
+.badge{display:inline-block;min-width:18px;text-align:center;background:#0004;border:1px solid var(--line);
+  border-radius:10px;padding:0 6px;color:var(--ink);font-size:12px}
+.cardrow{display:flex;gap:6px;flex-wrap:wrap;min-height:10px}
+#poolZone{background:#0002;border:1px dashed var(--line);border-radius:10px;padding:8px 10px;margin-bottom:10px}
+
+#playersZone{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(330px,1fr))}
+.camp{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px;position:relative}
+.camp.active{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold) inset, var(--shadow)}
+.camp.leader::after{content:"LEADER";position:absolute;top:-9px;right:10px;background:var(--red);color:#fff;
+  font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;letter-spacing:1px}
+.camp-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.camp-name{font-weight:800;font-size:15px}
+.camp-infl{display:flex;gap:8px;font-size:12px;color:var(--muted)}
+.camp-infl b{color:var(--gold);font-size:14px}
+.camp-grid{display:grid;grid-template-columns:1fr;gap:6px}
+.subzone{border-top:1px dashed var(--line);padding-top:5px}
+.subzone .sz-label{font-size:11px;color:var(--muted);margin-bottom:3px}
+.structrow{display:flex;gap:6px;flex-wrap:wrap}
+
+/* ---------- 卡牌 ---------- */
+.card{width:84px;min-height:58px;border-radius:7px;border:1px solid #0007;overflow:hidden;
+  background:var(--panel2);cursor:default;position:relative;user-select:none;display:flex;flex-direction:column}
+.card .chead{font-size:11px;font-weight:800;padding:3px 5px;color:#fff;line-height:1.15;
+  display:flex;justify-content:space-between;align-items:center;gap:3px}
+.card .crole{font-size:9px;opacity:.92;padding:1px 5px;color:#fff}
+.card .cfoot{font-size:9px;color:var(--muted);padding:2px 5px;margin-top:auto;display:flex;justify-content:space-between}
+.card.mini{width:64px;min-height:46px}
+.card.tiny{width:46px;min-height:34px}
+.card.jack{background:linear-gradient(180deg,#caa23f,#8a6c1d);color:#1c1814}
+.card.jack .chead{color:#241c08}
+.card.selectable{cursor:pointer}
+.card.selectable:hover{outline:2px solid var(--gold);transform:translateY(-2px);transition:.08s}
+.card.selected{outline:3px solid var(--gold);transform:translateY(-3px)}
+.card.facedown{background:repeating-linear-gradient(45deg,#3a2f22,#3a2f22 6px,#332a1f 6px,#332a1f 12px);color:transparent}
+.card .ctip{display:none}
+.card[data-tip]:hover .ctip,.card[data-tip]:hover::after{}
+.material-pill{display:inline-block;width:12px;height:12px;border-radius:3px;border:1px solid #0006;vertical-align:middle}
+
+/* 完成的建筑/在建 小卡 */
+.struct{border-radius:6px;padding:3px 6px;font-size:11px;color:#fff;font-weight:700;border:1px solid #0006;position:relative}
+.struct .prog{font-size:10px;opacity:.9;font-weight:500}
+.struct.done{box-shadow:0 0 0 2px #d8b15a55}
+.struct.pub::after{content:"公开";position:absolute;top:-7px;right:-4px;background:var(--good);color:#fff;
+  font-size:8px;padding:1px 4px;border-radius:6px}
+.struct.selectable{cursor:pointer}
+.struct.selectable:hover{outline:2px solid var(--gold)}
+
+/* ---------- 底部控制 ---------- */
+#control{position:sticky;bottom:0;background:linear-gradient(0deg,#221c15,#26201a);
+  border-top:2px solid var(--gold);padding:8px 16px 12px;z-index:15}
+.prompt{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:7px;min-height:20px}
+.prompt .em{color:var(--gold)}
+.actionbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;min-height:10px}
+.actionbar button,.btn{padding:8px 14px;border-radius:8px;border:1px solid var(--line);
+  background:var(--panel2);color:var(--ink);cursor:pointer;font-size:13px;font-weight:600}
+.actionbar button:hover,.btn:hover{border-color:var(--gold);background:#3a3024}
+.btn.primary{background:linear-gradient(180deg,#c63d27,#8f2818);color:#fff;border:none}
+.btn.gold{background:linear-gradient(180deg,#d8b15a,#a9863a);color:#241c08;border:none;font-weight:700}
+.btn.ghost{background:transparent}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+#handZone .hand{min-height:64px}
+
+/* ---------- 叠加层 ---------- */
+.overlay{position:fixed;inset:0;background:rgba(10,8,6,.86);z-index:50;display:flex;
+  align-items:center;justify-content:center;padding:20px}
+.modal{background:var(--panel);border:1px solid var(--gold);border-radius:14px;padding:24px 28px;
+  max-width:680px;width:100%;box-shadow:var(--shadow);max-height:90vh;overflow:auto}
+.modal h2{margin:0 0 8px;color:var(--gold)}
+.modal .modal-body{margin:12px 0}
+.modal .row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.handoff{text-align:center}
+.handoff .big{font-size:26px;color:var(--gold);margin:10px 0}
+.handoff .who{font-size:34px;font-weight:800;color:var(--ink);margin:14px 0}
+.role-pick{display:flex;gap:6px;flex-wrap:wrap}
+.role-pick .btn{min-width:84px;text-align:center}
+
+/* 日志 */
+#logModal .modal{max-width:560px}
+.logline{font-size:12px;padding:3px 0;border-bottom:1px solid #0003;color:var(--muted)}
+.logline b{color:var(--ink)}
+
+/* 计分表 */
+.scoretable{width:100%;border-collapse:collapse;margin-top:10px}
+.scoretable th,.scoretable td{border:1px solid var(--line);padding:6px 10px;text-align:center;font-size:13px}
+.scoretable th{background:#0003;color:var(--gold)}
+.scoretable tr.winner td{background:#3a2a12;color:var(--gold);font-weight:800}
+
+.tag{display:inline-block;font-size:10px;padding:1px 6px;border-radius:8px;border:1px solid var(--line);color:var(--muted);margin-left:6px}
+.tag.pub{color:var(--good);border-color:var(--good)}
+/* ---------- 真实卡面图片 ---------- */
+.card.img{width:96px;height:75px;padding:0;border:2px solid #0007;border-radius:7px;
+  background:#111;overflow:visible;display:block;transition:transform .1s}
+.card.img img{width:100%;height:100%;object-fit:cover;border-radius:5px;display:block;pointer-events:none}
+.card.img.mini{width:74px;height:58px}
+.hand .card.img{width:128px;height:100px}
+.card.img.selectable{cursor:pointer}
+.card.img:hover{transform:scale(2.05);z-index:80;box-shadow:0 12px 34px #000d}
+.hand .card.img:hover{transform:scale(2.15);transform-origin:center bottom}
+#pool .card.img:hover{transform-origin:center top}
+.card.img.selected{outline:3px solid var(--gold);outline-offset:1px}
+.card.img.selected:hover{transform:scale(2.05)}
+
+/* 顶栏牌库背面缩略 */
+.deckmini{height:26px;border-radius:4px;border:1px solid var(--line);vertical-align:middle;margin-right:4px}
+
+/* 参考卡overlay */
+.refimg{max-width:100%;max-height:78vh;border-radius:10px;box-shadow:var(--shadow)}
+
+@media(max-width:680px){
+  .name-inputs{grid-template-columns:1fr}
+  #playersZone{grid-template-columns:1fr}
+  .hand .card.img{width:108px;height:84px}
+}
