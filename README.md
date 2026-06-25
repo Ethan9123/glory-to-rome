@@ -25,13 +25,19 @@ node test.js && node test2.js && node test3.js
 
 ---
 
+## 素材出处 / Asset Credits
+卡面与玩家垫图取自 **Glory to Rome 官方免费发布的 Print-and-Play 素材**（该游戏绝版后由发行方公开发布，供玩家自行打印游玩），
+经由 **[PnP Paradise](https://www.pnpparadise.com/set-6/glory-to-rome)** 提供下载。原始美术由 Heiko Günther 等设计，版权归原作者/发行方所有。
+
+Card and player-mat images are from the **officially-released free Print-and-Play files for Glory to Rome**
+(made freely available by the publisher after the game went out of print), obtained via
+**[PnP Paradise](https://www.pnpparadise.com/set-6/glory-to-rome)**. Original artwork © its respective creators / Cambridge Games Factory.
+
 ## 版权声明 / Disclaimer
-本项目为 **非官方、粉丝自制** 的数字实现，仅供学习与个人游玩。
-**Glory to Rome** 由 Carl Chudyk 设计，版权归 **Cambridge Games Factory** 所有，本项目与其无任何关联。
+本项目为 **非官方、粉丝自制、非商业** 的数字实现，仅供学习与个人游玩。
+**Glory to Rome** 由 Carl Chudyk 设计，原始美术与素材版权归 **Cambridge Games Factory / 原作者** 所有，本项目与其无任何关联、未获其背书。
+**如版权方或素材作者有任何异议，请通过 Issue 联系仓库所有者，将立即下架相关素材。**
 
-本仓库 **不包含任何官方美术、卡面图或出版物素材**，仅使用本项目原创的样式化卡牌。
-游戏名称与机制属于事实性/玩法信息；如版权方有任何异议，请联系仓库所有者，将立即处理。
-
-This is an **unofficial, fan-made** digital implementation for personal and educational use only.
-*Glory to Rome* is designed by Carl Chudyk and © Cambridge Games Factory; this project is not affiliated with or endorsed by them.
-**No official artwork or published assets are included** — only original, stylized cards created for this project.
+This is an **unofficial, fan-made, non-commercial** digital implementation for personal and educational use only.
+*Glory to Rome* is designed by Carl Chudyk; original artwork/assets © Cambridge Games Factory / their respective creators.
+This project is not affiliated with or endorsed by them. **If any rights-holder objects, please open an issue and the assets will be removed immediately.**
