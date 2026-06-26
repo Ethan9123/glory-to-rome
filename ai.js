@@ -362,10 +362,14 @@
     const sd = normalizeLive(G, pid), h = trunkOf(encodeState(sd));
     const scores = moves.map(m => scoreMove(h, encodeMove(sd, m)));
     let idx = 0;
-    if (difficulty === 'easy') {           // 高温采样：更弱、更多样
-      const T = 1.7, ex = scores.map(s => Math.exp(s / T)), sum = ex.reduce((a, b) => a + b, 0);
-      let r = Math.random() * sum, acc = 0;
-      for (let i = 0; i < ex.length; i++) { acc += ex[i]; if (r <= acc) { idx = i; break; } }
+    if (difficulty === 'easy') {           // 35% 纯随机 + 高温采样：明显更弱，适合新手
+      if (Math.random() < 0.35) {
+        idx = Math.floor(Math.random() * moves.length);
+      } else {
+        const T = 1.7, ex = scores.map(s => Math.exp(s / T)), sum = ex.reduce((a, b) => a + b, 0);
+        let r = Math.random() * sum, acc = 0;
+        for (let i = 0; i < ex.length; i++) { acc += ex[i]; if (r <= acc) { idx = i; break; } }
+      }
     } else {                                // normal: 贪婪；hard(≥3人): 也用贪婪
       let bs = -Infinity;
       for (let i = 0; i < scores.length; i++) if (scores[i] > bs) { bs = scores[i]; idx = i; }
