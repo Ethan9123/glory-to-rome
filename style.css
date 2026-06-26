@@ -206,6 +206,10 @@ body{
 .tut-dot{width:9px;height:9px;border-radius:50%;background:#5a4c34;cursor:pointer}
 .tut-dot.on{background:var(--gold);transform:scale(1.25)}
 
+/* ---------- AI 对手 ---------- */
+.ai-hint{color:var(--muted);font-size:12px;margin-left:6px}
+.card.facedown{width:84px;height:62px;display:inline-block}
+
 /* ---------- 教学提示条 ---------- */
 .coach{background:linear-gradient(180deg,#3c3015,#322813);border:1px solid var(--gold);border-radius:9px;
   padding:8px 12px;margin-bottom:8px;color:#f3e4ba;font-size:13.5px;display:flex;gap:9px;align-items:center;line-height:1.5}

@@ -19,32 +19,68 @@
     act: null,                  // 动作阶段子状态
     toast: '',
     coach: true,                // 教学提示条
-    tut: 0                      // 教程当前页
+    tut: 0,                     // 教程当前页
+    aiSeats: new Set(),         // 由 AI 控制的座位
+    aiBusy: false,              // AI 行动调度锁
+    aiNoModel: false            // 模型缺失则回退随机
   };
+  const isAI = (pid) => ui.aiSeats.has(pid);
+
+  // 懒加载 AI 模型权重（约 5MB，仅在需要时载入）
+  let _aiModelLoading = null;
+  function ensureAIModel() {
+    if (window.GTR_AI_MODEL) return Promise.resolve(true);
+    if (_aiModelLoading) return _aiModelLoading;
+    _aiModelLoading = new Promise((res) => {
+      const s = document.createElement('script'); s.src = 'ai_model.js';
+      s.onload = () => res(true); s.onerror = () => res(false);
+      document.head.appendChild(s);
+    });
+    return _aiModelLoading;
+  }
 
   /* ------------------ 启动界面 ------------------ */
-  let playerCount = 3;
+  let playerCount = 2;
+  let aiCount = 1;
   function initSetup() {
     const cb = $('#playerCountBtns'); cb.innerHTML = '';
     [2, 3, 4, 5].forEach(n => {
       const b = el('button', n === playerCount ? 'active' : '', String(n));
-      b.onclick = () => { playerCount = n; initSetup(); };
+      b.onclick = () => { playerCount = n; if (aiCount > n - 1) aiCount = n - 1; initSetup(); };
       cb.appendChild(b);
     });
+    const ab = $('#aiCountBtns'); ab.innerHTML = '';
+    for (let k = 0; k <= playerCount - 1; k++) {
+      const b = el('button', k === aiCount ? 'active' : '', String(k));
+      b.onclick = () => { aiCount = k; initSetup(); };
+      ab.appendChild(b);
+    }
+    const human = playerCount - aiCount;
+    $('#aiHint').textContent = aiCount > 0 ? `（${human} 真人 + ${aiCount} 台 AI）` : '（全部真人热座）';
     const ni = $('#nameInputs'); ni.innerHTML = '';
     const defaults = ['玩家一', '玩家二', '玩家三', '玩家四', '玩家五'];
-    for (let i = 0; i < playerCount; i++) {
+    for (let i = 0; i < human; i++) {
       const inp = el('input'); inp.id = 'pname' + i; inp.value = defaults[i]; inp.maxLength = 10;
       ni.appendChild(inp);
     }
   }
-  $('#startBtn').onclick = () => {
+  $('#startBtn').onclick = async () => {
+    const human = playerCount - aiCount;
     const names = [];
-    for (let i = 0; i < playerCount; i++) names.push(($('#pname' + i).value || ('玩家' + (i + 1))).trim());
+    for (let i = 0; i < human; i++) names.push(($('#pname' + i).value || ('玩家' + (i + 1))).trim());
+    ui.aiSeats = new Set();
+    for (let i = human; i < playerCount; i++) { names.push('🤖 AI-' + (i - human + 1)); ui.aiSeats.add(i); }
     ui.beginner = $('#optBeginner').checked;
+    if (human <= 1) ui.handoffEnabled = false;   // 仅一个真人时无需交接遮罩
+    if (aiCount > 0) {
+      const sb = $('#startBtn'); sb.textContent = '正在载入 AI 模型…'; sb.disabled = true;
+      const okm = await ensureAIModel();
+      sb.textContent = '开始游戏'; sb.disabled = false;
+      ui.aiNoModel = !okm;
+    }
     G = new ENGINE.Game(names, {});
     if (ui.beginner) G.state.beginner = true;
-    ui.revealedFor = -1; ui.sel = []; ui.act = null;
+    ui.revealedFor = -1; ui.sel = []; ui.act = null; ui.aiBusy = false;
     $('#setup').classList.add('hidden');
     $('#game').classList.remove('hidden');
     render();
@@ -116,6 +152,33 @@
     if (s.over) { showGameOver(); }
     // 交接遮罩
     maybeHandoff();
+    // AI 行动调度
+    scheduleAI();
+  }
+
+  /* ------------------ AI 自动行动 ------------------ */
+  function scheduleAI() {
+    if (!G || G.state.over) return;
+    const owner = decisionOwner();
+    if (owner < 0 || !isAI(owner)) return;
+    if (ui.aiBusy) return;
+    ui.aiBusy = true;
+    setTimeout(aiTick, 460);
+  }
+  function aiTick() {
+    ui.aiBusy = false;
+    if (!G || G.state.over) { render(); return; }
+    const owner = decisionOwner();
+    if (owner < 0 || !isAI(owner)) { render(); return; }
+    try {
+      if (!(window.GTR_AI && GTR_AI.available() && !ui.aiNoModel && GTR_AI.act(G))) {
+        // 无模型时回退随机
+        GTR_AI.resolvePending(G);
+        const mvs = GTR_AI.legalMoves(G);
+        if (mvs.length) GTR_AI.applyMove(G, mvs[Math.floor(Math.random() * mvs.length)]);
+      }
+    } catch (e) { console.error('AI error', e); }
+    render();
   }
 
   function phaseText() {
@@ -339,6 +402,11 @@
     if (owner < 0) { $('#handOwner').textContent = ''; return; }
     const p = G.P(owner);
     $('#handOwner').textContent = `（${p.name}）`;
+    if (isAI(owner)) { // AI 手牌隐藏（仅显示牌背数量）
+      for (let i = 0; i < p.hand.length; i++) hand.appendChild(el('div', 'card facedown', '&nbsp;'));
+      if (!p.hand.length) hand.appendChild(hintSpan('（无手牌）'));
+      return;
+    }
     const s = G.state;
     // 何时手牌可选
     let selectable = false, selectHandler = null;
@@ -471,6 +539,8 @@
     const s = G.state, bar = $('#actionbar'), prompt = $('#prompt');
     bar.innerHTML = ''; prompt.innerHTML = '';
     if (s.over) { prompt.innerHTML = '<span class="em">游戏结束</span>'; return; }
+    const _owner = decisionOwner();
+    if (_owner >= 0 && isAI(_owner)) { prompt.innerHTML = `<span class="em">🤖 ${G.P(_owner).name} 行动中…</span>`; return; }
     if (ui.toast) { prompt.innerHTML = `<span class="em">${ui.toast}</span>`; ui.toast = ''; }
 
     if (s.pending) {
@@ -799,6 +869,7 @@
   function maybeHandoff() {
     const owner = decisionOwner();
     if (owner < 0 || G.state.over) return;
+    if (isAI(owner)) return;   // AI 座位无需交接
     if (!ui.handoffEnabled) { ui.revealedFor = owner; return; }
     if (ui.revealedFor === owner) return;
     // 显示交接
@@ -1004,6 +1075,12 @@
   /* ================== 教学提示条 ================== */
   function renderCoach() {
     const coach = $('#coach'); if (!coach || !G) return;
+    const owner = decisionOwner();
+    if (owner >= 0 && isAI(owner)) {
+      coach.classList.remove('hidden');
+      coach.innerHTML = `<span class="ico">🤖</span><span>${G.P(owner).name} 思考中…（神经网络 AI）</span>`;
+      return;
+    }
     const tip = ui.coach ? coachTip() : null;
     if (tip) {
       coach.classList.remove('hidden');
