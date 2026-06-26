@@ -1,5 +1,7 @@
 /* ===================================================================
-   Glory to Rome — 规则引擎 (核心40建筑 / Republic 规则 / 2-5人热座)
+   Glory to Rome — 规则引擎 (经典核心40建筑 / 请愿=2张为官方变体 / 2-5人热座)
+   注：Forum 采用其卡面原文（集齐每种角色随从即获胜，不含材料要求）；
+       若想用 Republic 的 Forum Romanum（另需每种材料各1），见 checkForum。
    纯逻辑，无 DOM。可在浏览器与 Node 下运行。
    UI 通过调用方法驱动；所有状态在 this.state。
    =================================================================== */
@@ -96,6 +98,23 @@
     log(text) { this.state.log.push({ t: this.state.turnNo, text }); }
     P(id) { return this.state.players[id]; }
     cur() { return this.state.current; }
+
+    // 深拷贝（供 AI 的 MCTS 模拟使用；游戏过程不依赖 rng，故共享即可）
+    clone() {
+      const g = Object.create(Game.prototype);
+      g.rng = this.rng;
+      g._structSeq = this._structSeq;
+      if (typeof structuredClone === 'function') {
+        const log = this.state.log; this.state.log = [];           // 不拷贝日志，省时
+        g.state = structuredClone(this.state);
+        this.state.log = log; g.state.log = [];
+      } else {
+        const pp = [...this.state.publicPowers];
+        g.state = JSON.parse(JSON.stringify(Object.assign({}, this.state, { publicPowers: pp, log: [] })));
+      }
+      if (!(g.state.publicPowers instanceof Set)) g.state.publicPowers = new Set(g.state.publicPowers || []);
+      return g;
+    }
 
     // ---------- 能力查询 ----------
     hasPower(pid, power) {

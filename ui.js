@@ -22,7 +22,8 @@
     tut: 0,                     // 教程当前页
     aiSeats: new Set(),         // 由 AI 控制的座位
     aiBusy: false,              // AI 行动调度锁
-    aiNoModel: false            // 模型缺失则回退随机
+    aiNoModel: false,           // 模型缺失则回退随机
+    aiDifficulty: 'normal'      // easy / normal / hard
   };
   const isAI = (pid) => ui.aiSeats.has(pid);
 
@@ -42,21 +43,36 @@
   /* ------------------ 启动界面 ------------------ */
   let playerCount = 2;
   let aiCount = 1;
+  const DIFFS = [['easy', '简单'], ['normal', '普通'], ['hard', '困难·MCTS']];
   function initSetup() {
     const cb = $('#playerCountBtns'); cb.innerHTML = '';
     [2, 3, 4, 5].forEach(n => {
       const b = el('button', n === playerCount ? 'active' : '', String(n));
-      b.onclick = () => { playerCount = n; if (aiCount > n - 1) aiCount = n - 1; initSetup(); };
+      b.onclick = () => { playerCount = n; if (aiCount > n) aiCount = n; initSetup(); };
       cb.appendChild(b);
     });
     const ab = $('#aiCountBtns'); ab.innerHTML = '';
-    for (let k = 0; k <= playerCount - 1; k++) {
+    for (let k = 0; k <= playerCount; k++) {   // 允许 0..全部AI（全AI=观战）
       const b = el('button', k === aiCount ? 'active' : '', String(k));
       b.onclick = () => { aiCount = k; initSetup(); };
       ab.appendChild(b);
     }
     const human = playerCount - aiCount;
-    $('#aiHint').textContent = aiCount > 0 ? `（${human} 真人 + ${aiCount} 台 AI）` : '（全部真人热座）';
+    $('#aiHint').textContent = aiCount === 0 ? '（全部真人热座）'
+      : human === 0 ? `（${aiCount} 台 AI 混战 · 观战模式）`
+        : `（${human} 真人 + ${aiCount} 台 AI）`;
+    // 难度选择（仅当有 AI 时显示）
+    $('#difficultyRow').style.display = aiCount > 0 ? '' : 'none';
+    const db = $('#difficultyBtns'); db.innerHTML = '';
+    DIFFS.forEach(([k, label]) => {
+      const b = el('button', k === ui.aiDifficulty ? 'active' : '', label);
+      b.style.width = 'auto'; b.style.padding = '0 12px';
+      b.onclick = () => { ui.aiDifficulty = k; initSetup(); };
+      db.appendChild(b);
+    });
+    $('#diffHint').textContent = ui.aiDifficulty === 'hard'
+      ? '（困难=神经网络+MCTS搜索；仅 2 人时启用搜索，思考稍慢）'
+      : ui.aiDifficulty === 'easy' ? '（简单=高随机性，适合新手）' : '（普通=神经网络直接决策）';
     const ni = $('#nameInputs'); ni.innerHTML = '';
     const defaults = ['玩家一', '玩家二', '玩家三', '玩家四', '玩家五'];
     for (let i = 0; i < human; i++) {
@@ -163,7 +179,8 @@
     if (owner < 0 || !isAI(owner)) return;
     if (ui.aiBusy) return;
     ui.aiBusy = true;
-    setTimeout(aiTick, 460);
+    const humans = G.state.nPlayers - ui.aiSeats.size;
+    setTimeout(aiTick, humans === 0 ? 160 : 420);   // 全 AI 观战时加速
   }
   function aiTick() {
     ui.aiBusy = false;
@@ -171,7 +188,7 @@
     const owner = decisionOwner();
     if (owner < 0 || !isAI(owner)) { render(); return; }
     try {
-      if (!(window.GTR_AI && GTR_AI.available() && !ui.aiNoModel && GTR_AI.act(G))) {
+      if (!(window.GTR_AI && GTR_AI.available() && !ui.aiNoModel && GTR_AI.act(G, ui.aiDifficulty))) {
         // 无模型时回退随机
         GTR_AI.resolvePending(G);
         const mvs = GTR_AI.legalMoves(G);
@@ -1078,7 +1095,8 @@
     const owner = decisionOwner();
     if (owner >= 0 && isAI(owner)) {
       coach.classList.remove('hidden');
-      coach.innerHTML = `<span class="ico">🤖</span><span>${G.P(owner).name} 思考中…（神经网络 AI）</span>`;
+      const dl = { easy: '简单', normal: '普通', hard: '困难·MCTS搜索' }[ui.aiDifficulty] || '普通';
+      coach.innerHTML = `<span class="ico">🤖</span><span>${G.P(owner).name} 思考中…（神经网络 AI · ${dl}）</span>`;
       return;
     }
     const tip = ui.coach ? coachTip() : null;

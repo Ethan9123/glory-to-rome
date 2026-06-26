@@ -128,6 +128,10 @@
     const a = linRelu(M.move[0], x);
     return linRaw(M.move[1], a)[0];
   }
+  function valueOf(h) {  // 价值头：状态价值 ∈ [-1,1]（对当前行动者）
+    const a = linRelu(M.value[0], h);
+    return Math.tanh(linRaw(M.value[1], a)[0]);
+  }
 
   // ---------- 从 engine.js 实时状态构造归一化 dict ----------
   function normalizeLive(G, pid) {
@@ -270,8 +274,80 @@
     }
   }
 
-  // ---------- 主入口：让当前 AI 座位走一步 ----------
-  function act(G) {
+  // ---------- MCTS（确定化 PUCT，仅 2 人；难度=模拟次数）----------
+  function jsMargin(G, seat) {
+    const sc = G.scoreAll().map(x => x.total);
+    let mx = -Infinity; sc.forEach((v, i) => { if (i !== seat && v > mx) mx = v; });
+    return Math.max(-1, Math.min(1, (sc[seat] - mx) / 12));
+  }
+  function determinizeJS(G, pid) {
+    const g2 = G.clone(), s = g2.state;
+    let unknown = []; const sizes = [], jacks = [];
+    s.players.forEach((p, i) => {
+      if (i === pid) return;
+      const nj = p.hand.filter(c => c !== 'Jack');
+      jacks.push([i, p.hand.length - nj.length]); sizes.push([i, nj.length]);
+      unknown = unknown.concat(nj); p.hand = [];
+    });
+    unknown = unknown.concat(s.deck);
+    for (let i = unknown.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = unknown[i]; unknown[i] = unknown[j]; unknown[j] = t; }
+    sizes.forEach(([i, k]) => { const h = []; for (let x = 0; x < k; x++) h.push(unknown.pop()); s.players[i].hand = h; });
+    jacks.forEach(([i, jk]) => { for (let x = 0; x < jk; x++) s.players[i].hand.push('Jack'); });
+    s.deck = unknown;
+    return g2;
+  }
+  function makeNode(g) {
+    const over = g.state.over;
+    return {
+      g, terminal: !!over, toMove: over ? -1 : decisionPid(g),
+      term: over ? g.state.players.map((_, p) => jsMargin(g, p)) : null,
+      moves: null, P: null, N: null, W: null, children: null, expanded: false
+    };
+  }
+  function expandNode(node) {
+    const g = node.g, pid = node.toMove;
+    node.moves = legalMoves(g);
+    const sd = normalizeLive(g, pid), h = trunkOf(encodeState(sd));
+    const logits = node.moves.map(m => scoreMove(h, encodeMove(sd, m)));
+    const mx = Math.max.apply(null, logits), ex = logits.map(l => Math.exp(l - mx));
+    const sm = ex.reduce((a, b) => a + b, 0); node.P = ex.map(e => e / sm);
+    const k = node.moves.length; node.N = new Float64Array(k); node.W = new Float64Array(k);
+    node.children = new Array(k).fill(null); node.expanded = true;
+    const v = valueOf(h), n = g.state.nPlayers, vec = new Array(n);
+    for (let p = 0; p < n; p++) vec[p] = (p === pid) ? v : -v;   // 2人零和
+    return vec;
+  }
+  function simulateNode(node, c) {
+    if (node.terminal) return node.term;
+    if (!node.expanded) return expandNode(node);
+    let total = 0; for (let i = 0; i < node.N.length; i++) total += node.N[i];
+    const sq = Math.sqrt(total + 1); let bi = 0, bu = -Infinity;
+    for (let i = 0; i < node.moves.length; i++) {
+      const q = node.N[i] > 0 ? node.W[i] / node.N[i] : 0;
+      const u = c * node.P[i] * sq / (1 + node.N[i]);
+      if (q + u > bu) { bu = q + u; bi = i; }
+    }
+    let child = node.children[bi];
+    if (!child) { const g2 = node.g.clone(); applyMove(g2, node.moves[bi]); resolvePending(g2); child = makeNode(g2); node.children[bi] = child; }
+    const vec = simulateNode(child, c);
+    node.N[bi] += 1; node.W[bi] += vec[node.toMove];
+    return vec;
+  }
+  function mctsAct(G, pid, sims, nDet, c) {
+    const per = Math.max(1, Math.floor(sims / nDet)); const agg = {}, rep = {};
+    for (let d = 0; d < nDet; d++) {
+      const root = makeNode(determinizeJS(G, pid));
+      for (let s = 0; s < per; s++) simulateNode(root, c);
+      if (root.moves) for (let i = 0; i < root.moves.length; i++) {
+        const kk = JSON.stringify(root.moves[i]); agg[kk] = (agg[kk] || 0) + root.N[i]; rep[kk] = root.moves[i];
+      }
+    }
+    let best = null, bv = -1; for (const kk in agg) if (agg[kk] > bv) { bv = agg[kk]; best = kk; }
+    return best ? rep[best] : legalMoves(G)[0];
+  }
+
+  // ---------- 主入口：让当前 AI 座位走一步（difficulty: easy/normal/hard）----------
+  function act(G, difficulty) {
     if (!ensure()) return false;
     resolvePending(G);
     if (G.state.over) return true;
@@ -279,20 +355,28 @@
     const moves = legalMoves(G);
     if (!moves.length) return false;
     if (moves.length === 1) { applyMove(G, moves[0]); return true; }
-    const sd = normalizeLive(G, pid);
-    const h = trunkOf(encodeState(sd));
-    let bi = 0, bs = -Infinity;
-    for (let i = 0; i < moves.length; i++) {
-      const sc = scoreMove(h, encodeMove(sd, moves[i]));
-      if (sc > bs) { bs = sc; bi = i; }
+    difficulty = difficulty || 'normal';
+    if (difficulty === 'hard' && G.state.nPlayers === 2) {   // MCTS（仅2人）
+      applyMove(G, mctsAct(G, pid, 48, 4, 1.4)); return true;
     }
-    applyMove(G, moves[bi]);
+    const sd = normalizeLive(G, pid), h = trunkOf(encodeState(sd));
+    const scores = moves.map(m => scoreMove(h, encodeMove(sd, m)));
+    let idx = 0;
+    if (difficulty === 'easy') {           // 高温采样：更弱、更多样
+      const T = 1.7, ex = scores.map(s => Math.exp(s / T)), sum = ex.reduce((a, b) => a + b, 0);
+      let r = Math.random() * sum, acc = 0;
+      for (let i = 0; i < ex.length; i++) { acc += ex[i]; if (r <= acc) { idx = i; break; } }
+    } else {                                // normal: 贪婪；hard(≥3人): 也用贪婪
+      let bs = -Infinity;
+      for (let i = 0; i < scores.length; i++) if (scores[i] > bs) { bs = scores[i]; idx = i; }
+    }
+    applyMove(G, moves[idx]);
     return true;
   }
 
   global.GTR_AI = {
     available, encodeState, encodeMove, normalizeLive, legalMoves, applyMove,
-    resolvePending, act, trunkOf, scoreMove, decisionPid
+    resolvePending, act, trunkOf, scoreMove, valueOf, mctsAct, decisionPid
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = global.GTR_AI;
 })(typeof window !== 'undefined' ? window : globalThis);
