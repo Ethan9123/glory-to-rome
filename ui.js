@@ -23,9 +23,38 @@
     aiSeats: new Set(),         // 由 AI 控制的座位
     aiBusy: false,              // AI 行动调度锁
     aiNoModel: false,           // 模型缺失则回退随机
-    aiDifficulty: 'normal'      // easy / normal / hard
+    aiDifficulty: 'normal',     // easy / normal / hard
+    soundOn: true                // 音效开关
   };
   const isAI = (pid) => ui.aiSeats.has(pid);
+
+  /* ------------------ 轻量音效（Web Audio 合成，无需外部音频文件） ------------------ */
+  const SFX = (function () {
+    let ctx = null;
+    function ac() {
+      if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { /* 不支持则静默 */ } }
+      return ctx;
+    }
+    function tone(freq, dur, type, peak, delay) {
+      if (!ui.soundOn) return;
+      const c = ac(); if (!c) return;
+      if (c.state === 'suspended') c.resume();
+      const t0 = c.currentTime + (delay || 0);
+      const osc = c.createOscillator(), gain = c.createGain();
+      osc.type = type || 'sine'; osc.frequency.setValueAtTime(freq, t0);
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(peak || 0.07, t0 + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      osc.connect(gain); gain.connect(c.destination);
+      osc.start(t0); osc.stop(t0 + dur + 0.03);
+    }
+    return {
+      click() { tone(720, 0.06, 'sine', 0.045); },
+      error() { tone(150, 0.15, 'square', 0.045); },
+      build() { tone(523.25, 0.09, 'sine', 0.06); tone(659.25, 0.11, 'sine', 0.06, 0.07); tone(783.99, 0.17, 'sine', 0.07, 0.14); },
+      win() { [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, 0.2, 'triangle', 0.08, i * 0.11)); }
+    };
+  })();
 
   // 懒加载 AI 模型权重（约 5MB，仅在需要时载入）
   let _aiModelLoading = null;
@@ -96,12 +125,13 @@
     }
     G = new ENGINE.Game(names, {});
     if (ui.beginner) G.state.beginner = true;
-    ui.revealedFor = -1; ui.sel = []; ui.act = null; ui.aiBusy = false;
+    ui.revealedFor = -1; ui.sel = []; ui.act = null; ui.aiBusy = false; ui._gameOverSoundPlayed = false;
     $('#setup').classList.add('hidden');
     $('#game').classList.remove('hidden');
     render();
   };
   $('#tutorialBtn').onclick = () => showTutorial(0);
+  $('#interactiveTutBtn').onclick = () => startInteractiveTutorial();
   initSetup();
 
   /* ------------------ 顶部按钮 ------------------ */
@@ -158,6 +188,7 @@
     $('#deckCount').textContent = s.deck.length;
     $('#jackCount').textContent = s.jackPile;
     $('#phaseBanner').textContent = phaseText();
+    renderPhaseStepper();
     renderSites();
     renderPool();
     renderPlayers();
@@ -170,6 +201,8 @@
     maybeHandoff();
     // AI 行动调度
     scheduleAI();
+    // 互动教学局状态推进
+    driveInteractiveTutorial();
   }
 
   /* ------------------ AI 自动行动 ------------------ */
@@ -212,6 +245,30 @@
     if (s.phase === 'follow') return '跟随阶段';
     if (s.phase === 'actions') return '动作阶段 · ' + ROLE_ZH[s.ledRole];
     return '';
+  }
+
+  // 回合阶段进度条：带头 → 跟随 → 动作，一眼看清当前在哪一步
+  function renderPhaseStepper() {
+    const wrap = $('#phaseStepper'); if (!wrap) return;
+    const s = G.state; wrap.innerHTML = '';
+    if (s.over) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'flex';
+    const order = ['lead', 'follow', 'actions'];
+    const curIdx = order.indexOf(s.phase);
+    const labels = [['带头', 'Lead'], ['跟随', 'Follow'], ['动作', 'Actions']];
+    labels.forEach(([zh, en], i) => {
+      if (i > 0) wrap.appendChild(el('span', 'pstep-arrow', '›'));
+      const cls = i < curIdx ? 'done' : (i === curIdx ? 'active' : '');
+      const st = el('span', 'pstep ' + cls, `<span class="pdot"></span>${zh} ${en}`);
+      wrap.appendChild(st);
+    });
+    // 附加信息：当前带头者 / 已跟随人数 / 角色
+    const extra = el('span', 'pstep-arrow', '');
+    let info = '';
+    if (s.phase === 'lead') info = `等待 ${G.P(s.leaderIndex).name} 决定`;
+    else if (s.phase === 'follow') info = `${ROLE_ZH[s.ledRole]}：等待 ${G.P(s.current).name}`;
+    else if (s.phase === 'actions') info = `${ROLE_ZH[s.ledRole]}：${G.P(s.current).name} 剩 ${G.actorTokens(s.current).length} 动作`;
+    if (info) wrap.appendChild(el('span', '', `<span style="color:var(--muted);font-size:12px;margin-left:6px">· ${info}</span>`));
   }
 
   function decisionOwner() {
@@ -304,7 +361,7 @@
         const chip = el('div', 'struct');
         chip.style.background = MATERIALS[m] ? MATERIALS[m].color : '#777';
         chip.style.color = '#fff';
-        chip.innerHTML = `${ROLE_ZH[cl.role]}<span class="prog"> ${cl.fresh ? '·新' : ''}</span>`;
+        chip.innerHTML = `${m ? matShapeHTML(m) : ''}${ROLE_ZH[cl.role]}<span class="prog"> ${cl.fresh ? '·新' : ''}</span>`;
         chip.title = `${cl.name} (${cl.role})`;
         // Coliseum 抓取目标
         if (ui.act && ui.act.mode === 'coliseum' && p.id !== owner) {
@@ -328,7 +385,7 @@
         if (!byMat[m]) return;
         const chip = el('div', 'struct');
         chip.style.background = MATERIALS[m].color; chip.style.color = '#fff';
-        chip.innerHTML = `${MATERIALS[m].zh}<span class="prog"> ×${byMat[m].length}</span>`;
+        chip.innerHTML = `${matShapeHTML(m)}${MATERIALS[m].zh}<span class="prog"> ×${byMat[m].length}</span>`;
         chip.title = `${m} ×${byMat[m].length}`;
         if (stockSel) { chip.classList.add('selectable'); chip.dataset.z = 'stock'; chip.dataset.o = p.id; chip.dataset.m = m; chip.dataset.i = byMat[m][0]; }
         mr.appendChild(chip);
@@ -346,6 +403,8 @@
 
   function hintSpan(t) { return el('span', '', `<span style="color:var(--muted);font-size:11px">${t}</span>`); }
   function matForRole(role) { return MATERIAL_LIST.find(m => MATERIALS[m].role === role); }
+  // 色盲友好：形状+颜色双重标识材料（不仅靠颜色区分）
+  function matShapeHTML(m) { return `<span class="matshape matshape-${m}" style="background:${MATERIALS[m].color}"></span>`; }
 
   function renderStruct(st, o) {
     const chip = el('div', 'struct' + (o.completed ? ' done' : ''));
@@ -751,7 +810,7 @@
     else if (role === 'Craftsman' || role === 'Architect') renderBuild(role);
     else if (role === 'Thinker') { setPrompt(`<span class="em">${G.P(pid).name}</span>：额外思考动作（剩余 ${remain}）`); bar.appendChild(btn('进行思考', 'btn primary', () => { do_(G.doThinkerToken()); })); }
 
-    bar.appendChild(btn('结束我的动作', 'btn ghost', () => { ui.act = null; do_(G.endActor()); }));
+    endActorBtn(bar);
   }
 
   function renderLaborer() {
@@ -810,7 +869,7 @@
     const bar = $('#actionbar'); bar.innerHTML = '';
     bar.appendChild(btn(`确定军团兵（索取 ${m}）`, 'btn primary', () => do_(G.doLegionary({ material: m, coliseum: ui.act.coliseum }))));
     bar.appendChild(btn('取消', 'btn ghost', () => { ui.act = null; renderControl(); }));
-    bar.appendChild(btn('结束我的动作', 'btn ghost', () => { ui.act = null; do_(G.endActor()); }));
+    endActorBtn(bar);
     renderPlayers();
   }
 
@@ -864,13 +923,36 @@
     ui.act = null; afterEngine();
   }
 
+  // 结束动作前的“未用尽动作”提醒：避免新手误点浪费动作点
+  function endActorBtn(bar) {
+    const pid = G.state.current;
+    const b = btn('结束我的动作', 'btn ghost', () => {
+      const remain = G.actorTokens(pid).length;
+      if (remain > 0) {
+        toast(`⚠ 你还有 ${remain} 个动作未使用，确定要结束吗？再次点击「结束我的动作」确认。`);
+        b.classList.add('btn-confirm'); b.textContent = `确定结束（放弃 ${remain} 个动作）`;
+        b.onclick = () => { ui.act = null; do_(G.endActor()); };
+        return;
+      }
+      ui.act = null; do_(G.endActor());
+    });
+    bar.appendChild(b);
+    return b;
+  }
+
   function refreshAct() { renderControl(); renderHand(); renderPool(); renderPlayers(); }
   function hintBtn(t) { const b = el('button', 'btn ghost'); b.textContent = t; b.disabled = true; return b; }
   function setPrompt(html) { $('#prompt').innerHTML = html; }
   function toast(msg) { ui.toast = msg; $('#prompt').innerHTML = `<span class="em">${msg}</span>`; }
 
   /* 引擎调用包装 */
-  function do_(result) { if (result && !result.ok) { toast(result.error); return; } ui.act = null; afterEngine(); }
+  function do_(result) {
+    if (result && !result.ok) { SFX.error(); toast(result.error); return; }
+    const beforeLog = G.state.log.length;
+    ui.act = null; afterEngine();
+    const newLines = G.state.log.slice(beforeLog);
+    if (newLines.some(l => l.text.startsWith('✦'))) SFX.build(); else SFX.click();
+  }
   function afterEngine() { render(); }
 
   /* ================== 角色 / Site 选择弹窗 ================== */
@@ -910,21 +992,46 @@
   }
 
   /* ================== 游戏结束 ================== */
+  const REASON_ZH = {
+    'deck': '牌库抽空', 'sites': '城内场地用尽', 'catacomb': 'Catacomb 完成',
+    '集齐每种角色随从 (Forum)': 'Forum：集齐每种角色随从', '其他玩家投降': '其他玩家投降'
+  };
   function showGameOver() {
     const o = G.state.over; if (!o) return;
+    if (!ui._gameOverSoundPlayed) { ui._gameOverSoundPlayed = true; SFX.win(); }
     const ov = $('#overlay'); ov.classList.remove('hidden');
-    const modal = el('div', 'modal');
-    modal.appendChild(el('h2', '', '🏆 游戏结束'));
-    modal.appendChild(el('p', '', `结束原因：${o.reason}。胜者：<b style="color:var(--gold)">${o.winner != null ? G.P(o.winner).name : '—'}</b>`));
+    const modal = el('div', 'modal recap-modal');
+    const sorted = o.scores.slice().sort((a, b) => b.total - a.total);
+    const winnerSc = o.winner != null ? sorted.find(s => s.id === o.winner) : null;
+    const reasonZh = REASON_ZH[o.reason] || o.reason;
+
+    modal.appendChild(el('div', 'recap-hero',
+      `<div class="recap-trophy">🏆</div>
+       <div class="recap-winner">${winnerSc ? winnerSc.name : '游戏结束'}</div>
+       <div class="recap-sub">${winnerSc ? `以 <b>${winnerSc.total}</b> 分获胜 · ${reasonZh}` : reasonZh}</div>`));
+
+    if (winnerSc) {
+      const parts = [];
+      if (winnerSc.influence > 0) parts.push(`影响力 ${winnerSc.influence}`);
+      if (winnerSc.vault > 0) parts.push(`金库 ${winnerSc.vault}`);
+      if (winnerSc.merchantBonus > 0) parts.push(`商人奖励 ${winnerSc.merchantBonus}`);
+      if (winnerSc.structureVP > 0) parts.push(`建筑加分 ${winnerSc.structureVP}`);
+      if (parts.length) modal.appendChild(el('div', 'recap-breakdown', parts.join(' + ') + ` = <b>${winnerSc.total}</b>`));
+    }
+
     const tbl = el('table', 'scoretable');
-    tbl.innerHTML = `<tr><th>玩家</th><th>影响力</th><th>金库</th><th>商人奖励</th><th>建筑分</th><th>总分</th></tr>`;
-    o.scores.slice().sort((a, b) => b.total - a.total).forEach(sc => {
+    tbl.innerHTML = `<tr><th>名次</th><th>玩家</th><th>影响力</th><th>金库</th><th>商人奖励</th><th>建筑分</th><th>总分</th></tr>`;
+    sorted.forEach((sc, i) => {
       const tr = el('tr', sc.id === o.winner ? 'winner' : '');
-      tr.innerHTML = `<td>${sc.name}</td><td>${sc.influence}</td><td>${sc.vault}</td><td>${sc.merchantBonus}</td><td>${sc.structureVP}</td><td>${sc.total}</td>`;
+      const medal = ['🥇', '🥈', '🥉'][i] || (i + 1);
+      tr.innerHTML = `<td>${medal}</td><td>${sc.name}</td><td>${sc.influence}</td><td>${sc.vault}</td><td>${sc.merchantBonus}</td><td>${sc.structureVP}</td><td><b>${sc.total}</b></td>`;
       tbl.appendChild(tr);
     });
     modal.appendChild(tbl);
-    modal.appendChild(btn('再来一局', 'btn primary', () => { $('#overlay').classList.add('hidden'); $('#game').classList.add('hidden'); $('#setup').classList.remove('hidden'); G = null; }));
+    const navRow = el('div', 'row');
+    navRow.appendChild(btn('再来一局', 'btn primary', () => { $('#overlay').classList.add('hidden'); $('#game').classList.add('hidden'); $('#setup').classList.remove('hidden'); G = null; }));
+    navRow.appendChild(btn('查看日志', 'btn ghost', showLog));
+    modal.appendChild(navRow);
     ov.innerHTML = ''; ov.appendChild(modal);
   }
 
@@ -951,9 +1058,9 @@
      ['Architect', '建筑师', '用库存盖建筑'], ['Legionary', '军团兵', '向邻居抢材料'],
      ['Merchant', '商人', '卖材料赚分'], ['Patron', '资助人', '雇随从帮你行动']
     ].forEach(([role, zh, desc]) => {
-      const m = matForRole(role), color = MATERIALS[m].color;
+      const m = matForRole(role);
       const r = el('div', 'rolerow');
-      r.innerHTML = `<span class="rolepill" style="background:${color}"></span>
+      r.innerHTML = `<span class="matshape matshape-${m}" style="background:${MATERIALS[m].color};width:15px;height:15px"></span>
         <span><span class="rname">${zh} ${role}</span><br><span class="rdesc">${MATERIALS[m].zh} · ${desc}</span></span>`;
       wrap.appendChild(r);
     });
@@ -1099,6 +1206,216 @@
     ov.innerHTML = ''; ov.appendChild(modal);
   }
 
+  /* ================== 互动教学局（真实引擎驱动 + 高亮聚光灯） ================== */
+  function freshLeadTurn(g) {
+    const s = g.state;
+    s.phase = 'lead'; s.leaderIndex = 0; s.current = 0; s.pending = null;
+    s.ledRole = null; s.ledInstances = 0; s.played = {};
+    s.order = []; s.oi = 0; s.tokens = {}; s.followQueue = []; s.fi = 0;
+  }
+  function ensureCards(hand, names) { names.forEach(n => { if (!hand.includes(n)) hand.push(n); }); }
+  // 建筑可能已从「在建」推进到「已完成」，两处都要认——避免轮询节奏错过中间状态
+  function hasPalisade(g) { return g.P(0).inProgress.some(s => s.name === 'Palisade') || g.P(0).completed.some(s => s.name === 'Palisade'); }
+
+  const TUT2 = [
+    { title: '欢迎来到互动教学', manual: true, narrate:
+      '接下来我们会玩几个<b>真实回合</b>（不是演示动画，是真的游戏引擎），我一步步带你完成：抓材料、盖房子、雇人、卖东西……做完这些你就真正学会了。<br><br>' +
+      '每一步我会用<b>金色光圈</b>标出该点哪里。点错了也没关系，我会让你重来。随时可点右上角「退出教学」。' },
+    { title: '认识你的手牌', manual: true, highlight: () => document.querySelector('#hand'), narrate:
+      '这些是你的手牌。记住最重要的一点：<b>同一张牌可以是 5 种东西</b>——角色指令、随从、材料、建筑、或卖钱的筹码，全看你怎么用它。<br><br>下面我们从最简单的<b>劳工</b>开始。' },
+    { title: '带头：劳工', highlight: () => pickHighlight(['带头【劳工', '#hand .card']), narrate:
+      '你现在手上只有一张<b style="color:#d8a23a">黄色（劳工）</b>牌。<br>1️⃣ 点这张手牌选中它<br>2️⃣ 再点下面出现的「带头【劳工】」按钮',
+      setup: (g) => { freshLeadTurn(g); g.P(0).hand = ['Insula']; g.state.pool = ['Latrine']; },
+      check: (g, t0) => {
+        if (g.state.phase === 'actions' && g.state.ledRole === 'Laborer') return 'success';
+        if (g.state.pending && g.state.pending.type === 'thinker' && g.state.pending.returnTo === 'endTurn') return 'wrong';
+        return 'pending';
+      }, wrongMsg: '你选择了「思考」——这也是合法的一步，但这次我们来练习「带头」。再试一次！' },
+    { title: '执行：从供应区取材料', highlight: () => document.querySelector('#pool .card'), narrate:
+      '很好，你现在是「劳工」了！点<b>供应区</b>里的那张碎石(Rubble)牌，把它拿进你的库存(Stockpile)。',
+      check: (g) => g.P(0).stockpile.length >= 1 ? 'success' : 'pending' },
+    { title: '小结', manual: true, narrate:
+      '👍 你的库存里现在有了 <b>1 块碎石(Rubble)材料</b>。<br><br>接下来学习本游戏最核心的部分——<b>怎么用材料盖一栋建筑</b>。' },
+    { title: '带头：工匠', highlight: () => pickHighlight(['带头【工匠', '#hand .card']), narrate:
+      '这次手上只有<b style="color:#4a9d5b">绿色（工匠 Craftsman）</b>牌。选中它，点「带头【工匠】」。<br><br>' +
+      '💡 你已经有一个<b>工匠随从</b>了，所以这次带头能拿到 <b>2 次</b>工匠动作——够我们「奠基」+「完成」一口气盖好一栋楼！',
+      setup: (g) => { freshLeadTurn(g); g.P(0).hand = ['Circus']; g.state.pool = [];
+        g.P(0).clientele = [{ name: 'Dock', role: 'Craftsman', fresh: false }]; },
+      check: (g) => {
+        if (g.state.phase === 'actions' && g.state.ledRole === 'Craftsman') return 'success';
+        if (g.state.pending && g.state.pending.type === 'thinker' && g.state.pending.returnTo === 'endTurn') return 'wrong';
+        return 'pending';
+      }, wrongMsg: '这次请练习「带头」，再试一次。' },
+    { title: '奠基：开始一座新建筑', highlight: () => pickHighlight(['奠基（出地基）']), narrate:
+      '工匠可以用<b>手牌</b>盖建筑。先点「奠基（出地基）」——这会把一张手牌当作新建筑的地基。',
+      setup: (g) => { ensureCards(g.P(0).hand, ['Palisade', 'Market']); },
+      check: (g) => hasPalisade(g) || (ui.act && (ui.act.mode === 'foundCard' || ui.act.mode === 'foundConfirm')) ? 'success' : 'pending' },
+    { title: '奠基：选这张牌', highlight: () => findHandCard('Palisade'), narrate:
+      '点手牌里的这张 <b>Palisade</b>（木材建筑，只需 1 个材料就能盖好，超便宜）。',
+      check: (g) => hasPalisade(g) || (ui.act && ui.act.mode === 'foundConfirm') ? 'success' : 'pending' },
+    { title: '奠基：确认城内建造', highlight: () => pickHighlight(['城内奠基']), narrate:
+      '这栋建筑要盖在<b>城内</b>，点「城内奠基」确认。',
+      check: (g) => hasPalisade(g) ? 'success' : 'pending' },
+    { title: '完成建筑', highlight: () => pickHighlight(['加材料', '#playersZone .struct.selectable']), narrate:
+      '地基已经打好！现在点「加材料 / 完成」，把你手上匹配的<b>木材(Wood)</b>材料放进去，一步盖完（Palisade 只需 1 个材料）。',
+      check: (g) => g.P(0).completed.length >= 1 ? 'success' : 'pending' },
+    { title: '🏛️ 建筑完成！', manual: true, narrate:
+      '恭喜！你盖好了第一栋建筑：<b>Palisade</b>。<br><br>你获得了：① <b>+1 影响力</b>（分数增加）② 它的专属能力：<b>免疫军团兵抢劫</b>。<br><br>盖建筑是本游戏最重要的得分方式——盖得越多、越早，滚雪球越快。' },
+    { title: '带头：资助人', highlight: () => pickHighlight(['带头【资助人', '#hand .card']), narrate:
+      '现在练习<b style="color:#9c5cc4">紫色（资助人 Patron）</b>：雇一个随从，以后每回合帮你多行动一次。',
+      setup: (g) => { freshLeadTurn(g); g.P(0).hand = ['Statue']; g.state.pool = ['Bar']; },
+      check: (g) => {
+        if (g.state.phase === 'actions' && g.state.ledRole === 'Patron') return 'success';
+        if (g.state.pending && g.state.pending.type === 'thinker' && g.state.pending.returnTo === 'endTurn') return 'wrong';
+        return 'pending';
+      }, wrongMsg: '这次请练习「带头」，再试一次。' },
+    { title: '雇佣随从', highlight: () => document.querySelector('#pool .card'), narrate:
+      '点供应区里的这张牌，把它雇成你的<b>随从</b>。以后每次有人带头/跟随「劳工」角色时，这个随从都会帮你多做一次劳工动作！',
+      check: (g) => g.P(0).clientele.length >= 1 ? 'success' : 'pending' },
+    { title: '带头：商人', highlight: () => pickHighlight(['带头【商人', '#hand .card']), narrate:
+      '最后练习<b style="color:#3b7dd8">蓝色（商人 Merchant）</b>：把材料卖进金库换分数。',
+      setup: (g) => { freshLeadTurn(g); g.P(0).hand = ['Catacomb']; g.P(0).stockpile = ['Latrine']; },
+      check: (g) => {
+        if (g.state.phase === 'actions' && g.state.ledRole === 'Merchant') return 'success';
+        if (g.state.pending && g.state.pending.type === 'thinker' && g.state.pending.returnTo === 'endTurn') return 'wrong';
+        return 'pending';
+      }, wrongMsg: '这次请练习「带头」，再试一次。' },
+    { title: '卖出材料', highlight: () => document.querySelector('#playersZone .struct.selectable[data-z="stock"]'), narrate:
+      '点你<b>库存</b>里的材料，把它卖进金库。金库里材料的<b>价值 = 游戏结束时的分数</b>，且对其他玩家保密！',
+      check: (g) => g.P(0).vault.length >= 1 ? 'success' : 'pending' },
+    { title: '🎓 你已经学会核心玩法了！', manual: true, narrate:
+      '快速回顾：<br>' +
+      '• <b>劳工</b>=拿材料 <b>工匠</b>=用手牌盖房 <b>资助人</b>=雇随从 <b>商人</b>=卖材料赚分<br>' +
+      '• 没提到的两个：<b>建筑师</b>（跟工匠一样，只是用库存材料）、<b>军团兵</b>（找邻居"借"材料）——玩两把就会了。<br>' +
+      '• <b>目标</b>：影响力 + 金库分 + 建筑加分，总分最高者获胜。<br><br>' +
+      '游戏中随时可点顶栏「参考卡」复习，左下角「💡」会持续给提示。<br><br><b>准备好开始真正的对局了吗？</b>' }
+  ];
+
+  function pickHighlight(candidates) {
+    for (const c of candidates) {
+      if (c.startsWith('#')) { const el2 = document.querySelector(c); if (el2) return el2; continue; }
+      const btnEl = [...document.querySelectorAll('#actionbar button, .flowstep, button')].find(b => b.textContent && b.textContent.includes(c));
+      if (btnEl) return btnEl;
+    }
+    return null;
+  }
+  function findHandCard(name) {
+    const owner = decisionOwner();
+    const p = G.P(owner);
+    const idx = p.hand.indexOf(name);
+    if (idx < 0) return null;
+    return document.querySelector(`#hand .card[data-i="${idx}"]`);
+  }
+
+  function startInteractiveTutorial() {
+    ui.aiSeats = new Set(); ui.handoffEnabled = false; ui.coach = false;
+    G = new ENGINE.Game(['你', '陪练'], { seed: 777 });
+    ui.revealedFor = 0; ui.sel = []; ui.act = null; ui.aiBusy = false; ui._gameOverSoundPlayed = false;
+    ui.tut2 = { active: true, step: 0, turnAtStepStart: G.state.turnNo };
+    $('#setup').classList.add('hidden'); $('#game').classList.remove('hidden');
+    tut2Enter(0);
+    render();
+    // 许多按钮只做局部重绘（不经过完整 render()），用轮询确保教学状态机始终能及时推进
+    if (ui.tut2PollId) clearInterval(ui.tut2PollId);
+    ui.tut2PollId = setInterval(() => { if (ui.tut2 && ui.tut2.active) driveInteractiveTutorial(); }, 220);
+  }
+  function tut2Enter(i) {
+    ui.tut2.step = i;
+    const step = TUT2[i];
+    if (step.setup) step.setup(G);
+    ui.tut2.turnAtStepStart = G.state.turnNo;
+    ui.tut2.confirmedFound = false;
+  }
+  function tut2Exit() {
+    ui.tut2 = null;
+    if (ui.tut2PollId) { clearInterval(ui.tut2PollId); ui.tut2PollId = null; }
+    clearTutSpotlight();
+    const c = $('#tutCallout'); if (c) c.remove();
+  }
+  function clearTutSpotlight() {
+    document.querySelectorAll('.tut-spotlight').forEach(e => e.classList.remove('tut-spotlight'));
+  }
+  // 陪练(seat1)自动决策：教学局里陪练永远选择“思考”，把主动权还给玩家
+  function scheduleTutOpponent() {
+    if (!ui.tut2 || !ui.tut2.active || ui.tut2.oppBusy) return;
+    const s = G.state;
+    const needsOpp = (s.phase === 'lead' && s.leaderIndex === 1) ||
+                     (s.phase === 'follow' && s.current === 1) ||
+                     (s.pending && s.pending.type === 'thinker' && s.pending.pid === 1);
+    if (!needsOpp) return;
+    ui.tut2.oppBusy = true;
+    setTimeout(() => {
+      ui.tut2.oppBusy = false;
+      if (!ui.tut2 || !ui.tut2.active || !G) return;
+      const st = G.state;
+      if (st.pending && st.pending.type === 'thinker' && st.pending.pid === 1) G.resolveThinker({ choice: 'draw1' });
+      else if (st.phase === 'follow' && st.current === 1) G.followThink();
+      else if (st.phase === 'lead' && st.leaderIndex === 1) G.leaderThink();
+      render();
+    }, 380);
+  }
+  // 每次 render() 时调用：推进互动教学状态机 + 绘制高亮/对话气泡
+  function driveInteractiveTutorial() {
+    if (!ui.tut2 || !ui.tut2.active) return;
+    scheduleTutOpponent();
+    const i = ui.tut2.step, step = TUT2[i];
+    if (!step.manual && step.check) {
+      const verdict = step.check(G, ui.tut2.turnAtStepStart);
+      if (verdict === 'success') {
+        if (i < TUT2.length - 1) { tut2Enter(i + 1); renderTutCallout(); }
+        else { renderTutCallout(); }
+        return;
+      } else if (verdict === 'wrong') {
+        toast(step.wrongMsg || '再试一次～');
+        SFX.error();
+        tut2Enter(i); // 用该步骤的 setup() 重置为干净状态
+        render(); return;
+      }
+    }
+    renderTutCallout();
+  }
+  function renderTutCallout() {
+    clearTutSpotlight();
+    const old = $('#tutCallout'); if (old) old.remove();
+    const i = ui.tut2.step, step = TUT2[i], total = TUT2.length;
+    const target = step.highlight ? step.highlight() : null;
+    if (target) target.classList.add('tut-spotlight');
+    const box = el('div', 'tut-callout'); box.id = 'tutCallout';
+    box.innerHTML = `<div class="tc-title">🎮 互动教学 · ${i + 1}/${total} · ${step.title}</div>
+      <div class="tc-body">${step.narrate}</div>`;
+    const nav = el('div', 'tc-nav');
+    const exitBtn = btn('退出教学', 'btn ghost', () => { tut2Exit(); $('#game').classList.add('hidden'); $('#setup').classList.remove('hidden'); G = null; });
+    nav.appendChild(exitBtn);
+    if (step.manual) {
+      const isLast = i === total - 1;
+      nav.appendChild(btn(isLast ? '开始真实对局 ▶' : '下一步 ›', 'btn gold', () => {
+        if (isLast) { tut2Exit(); $('#game').classList.add('hidden'); $('#setup').classList.remove('hidden'); G = null; }
+        else { tut2Enter(i + 1); render(); }
+      }));
+    } else {
+      nav.appendChild(btn('跳过这步', 'btn ghost', () => {
+        if (step.setup) step.setup(G); // 保证状态干净
+        if (i < TUT2.length - 1) tut2Enter(i + 1);
+        render();
+      }));
+    }
+    box.appendChild(nav);
+    document.body.appendChild(box);
+    positionCallout(box, target);
+  }
+  function positionCallout(box, target) {
+    const vw = window.innerWidth, vh = window.innerHeight;
+    if (!target) { box.style.left = '50%'; box.style.bottom = '90px'; box.style.top = ''; box.style.transform = 'translateX(-50%)'; return; }
+    const r = target.getBoundingClientRect();
+    box.style.transform = '';
+    let top = r.bottom + 14, left = r.left;
+    const boxW = 340;
+    if (left + boxW > vw - 12) left = vw - boxW - 12;
+    if (left < 12) left = 12;
+    if (top + 200 > vh) top = Math.max(12, r.top - 210); // 放不下就挪到目标上方
+    box.style.left = left + 'px'; box.style.top = top + 'px'; box.style.bottom = '';
+  }
+
   /* ================== 教学提示条 ================== */
   function renderCoach() {
     const coach = $('#coach'); if (!coach || !G) return;
@@ -1147,7 +1464,7 @@
   }
 
   // 调试钩子（仅供自动化测试用，不影响正常游戏）
-  window.__GTR_DEBUG = { getG: () => G, render, setAct: (a) => { ui.act = a; } };
+  window.__GTR_DEBUG = { getG: () => G, render, setAct: (a) => { ui.act = a; }, getUi: () => ui };
 
   function showMenu() {
     const ov = $('#overlay'); ov.classList.remove('hidden');
@@ -1160,6 +1477,10 @@
     const cch = el('label', '', `<input type="checkbox" ${ui.coach ? 'checked' : ''}> 显示「💡 教学提示」（新手提示条）`);
     cch.querySelector('input').onchange = e => { ui.coach = e.target.checked; render(); };
     body.appendChild(cch);
+    body.appendChild(el('div', '', '<div style="height:8px"></div>'));
+    const sch = el('label', '', `<input type="checkbox" ${ui.soundOn ? 'checked' : ''}> 🔊 音效`);
+    sch.querySelector('input').onchange = e => { ui.soundOn = e.target.checked; if (ui.soundOn) SFX.click(); };
+    body.appendChild(sch);
     body.appendChild(el('div', '', '<div style="height:10px"></div>'));
     body.appendChild(btn('📖 打开新手教程', 'btn gold', () => { ov.classList.add('hidden'); showTutorial(0); }));
     body.appendChild(el('p', '', '<br><b>投降</b>：其他所有玩家投降给某人，则其立即获胜。'));

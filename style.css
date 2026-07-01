@@ -48,6 +48,18 @@ body{
   color:var(--ink);cursor:pointer;font-size:13px}
 .mini-btn:hover{border-color:var(--gold)}
 
+/* ---------- 回合阶段进度条 ---------- */
+.phase-stepper{display:flex;align-items:center;gap:4px;padding:7px 16px;background:#1a150f;
+  border-bottom:1px solid var(--line);overflow-x:auto}
+.pstep{display:flex;align-items:center;gap:6px;padding:3px 10px;border-radius:14px;
+  font-size:12px;font-weight:600;color:var(--muted);white-space:nowrap;transition:.15s}
+.pstep .pdot{width:7px;height:7px;border-radius:50%;background:#5a4c34;flex:0 0 auto}
+.pstep.done{color:#7fae7f}
+.pstep.done .pdot{background:var(--good)}
+.pstep.active{color:#1c1814;background:var(--gold);font-weight:800}
+.pstep.active .pdot{background:#1c1814}
+.pstep-arrow{color:var(--line);font-size:12px}
+
 /* ---------- 场地条 ---------- */
 #sitesBar{display:flex;gap:8px;padding:8px 16px;background:#1a150f;border-bottom:1px solid var(--line);
   overflow-x:auto;align-items:center}
@@ -101,6 +113,16 @@ body{
 .card[data-tip]:hover .ctip,.card[data-tip]:hover::after{}
 .material-pill{display:inline-block;width:12px;height:12px;border-radius:3px;border:1px solid #0006;vertical-align:middle}
 
+/* 材料形状标识（色盲友好：形状+颜色双重区分，不仅靠颜色） */
+.matshape{display:inline-block;width:11px;height:11px;flex:0 0 auto;margin-right:1px;
+  border:1px solid rgba(0,0,0,.45);vertical-align:middle}
+.matshape-Rubble{clip-path:polygon(50% 0%,0% 100%,100% 100%)}                          /* 三角 */
+.matshape-Wood{border-radius:0 50% 50% 50%;transform:rotate(-45deg)}                    /* 水滴 */
+.matshape-Concrete{border-radius:2px}                                                   /* 方形 */
+.matshape-Brick{clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%)}                     /* 菱形 */
+.matshape-Stone{clip-path:polygon(25% 0%,75% 0%,100% 50%,75% 100%,25% 100%,0% 50%)}     /* 六边形 */
+.matshape-Marble{border-radius:50%}                                                     /* 圆形 */
+
 /* 完成的建筑/在建 小卡 */
 .struct{border-radius:6px;padding:3px 6px;font-size:11px;color:#fff;font-weight:700;border:1px solid #0006;position:relative}
 .struct .prog{font-size:10px;opacity:.9;font-weight:500}
@@ -122,6 +144,9 @@ body{
 .btn.primary{background:linear-gradient(180deg,#c63d27,#8f2818);color:#fff;border:none}
 .btn.gold{background:linear-gradient(180deg,#d8b15a,#a9863a);color:#241c08;border:none;font-weight:700}
 .btn.ghost{background:transparent}
+.btn-confirm{background:linear-gradient(180deg,#cf8a2e,#a5661a) !important;color:#fff !important;border:none !important;
+  animation:confirmPulse 1s ease-in-out infinite}
+@keyframes confirmPulse{0%,100%{box-shadow:0 0 0 0 #cf8a2e66}50%{box-shadow:0 0 0 6px #cf8a2e00}}
 .btn:disabled{opacity:.4;cursor:not-allowed}
 #handZone .hand{min-height:64px}
 
@@ -150,6 +175,18 @@ body{
 .scoretable th{background:#0003;color:var(--gold)}
 .scoretable tr.winner td{background:#3a2a12;color:var(--gold);font-weight:800}
 
+/* ---------- 结算弹窗（recap） ---------- */
+.recap-modal{max-width:640px;text-align:center}
+.recap-hero{padding:8px 0 6px}
+.recap-trophy{font-size:52px;line-height:1;animation:recapBounce 1.1s ease-in-out}
+@keyframes recapBounce{0%{transform:scale(.3) translateY(-30px);opacity:0}55%{transform:scale(1.15) translateY(0);opacity:1}100%{transform:scale(1)}}
+.recap-winner{font-size:26px;font-weight:800;color:var(--gold);margin-top:4px}
+.recap-sub{color:var(--muted);font-size:14px;margin-top:2px}
+.recap-breakdown{margin:10px auto 4px;font-size:13px;color:var(--ink);background:#0003;
+  border:1px solid var(--line);border-radius:8px;padding:7px 12px;display:inline-block}
+.recap-modal .scoretable{text-align:left}
+.recap-modal .row{justify-content:center}
+
 .tag{display:inline-block;font-size:10px;padding:1px 6px;border-radius:8px;border:1px solid var(--line);color:var(--muted);margin-left:6px}
 .tag.pub{color:var(--good);border-color:var(--good)}
 /* ---------- 真实卡面图片 ---------- */
@@ -172,7 +209,10 @@ body{
 .refimg{max-width:100%;max-height:78vh;border-radius:10px;box-shadow:var(--shadow)}
 
 /* ---------- 新手教程 ---------- */
-.tut-btn{background:linear-gradient(180deg,#d8b15a,#a9863a);color:#241c08;margin-top:6px;font-size:16px}
+.tut-btn-primary{background:linear-gradient(180deg,#e8c46a,#b8903f);color:#241c08;margin-top:6px;font-size:17px;
+  box-shadow:0 0 0 3px #e8c46a33, var(--shadow);animation:tutBtnGlow 2.2s ease-in-out infinite}
+@keyframes tutBtnGlow{0%,100%{box-shadow:0 0 0 3px #e8c46a33,var(--shadow)}50%{box-shadow:0 0 0 7px #e8c46a11,var(--shadow)}}
+.tut-btn{background:var(--panel2);color:var(--ink);margin-top:8px;font-size:14px;border:1px solid var(--line)}
 .tut-modal{max-width:780px}
 .tut-modal h2{display:flex;justify-content:space-between;align-items:baseline}
 .tut-step{font-size:13px;color:var(--muted);font-weight:400}
@@ -214,6 +254,18 @@ body{
 .card.facedown{width:84px;height:118px;display:inline-block;background-color:#171310;
   background-image:url('assets/back.jpg');background-size:cover;background-position:center;
   border:2px solid #d8b15a55;border-radius:7px}
+
+/* ---------- 互动教学：聚光灯高亮 + 对话气泡 ---------- */
+.tut-spotlight{position:relative !important;z-index:9999 !important;border-radius:8px;
+  box-shadow:0 0 0 5px var(--gold),0 0 0 9999px rgba(8,6,4,.74) !important;
+  animation:tutPulse 1.3s ease-in-out infinite}
+@keyframes tutPulse{0%,100%{box-shadow:0 0 0 5px var(--gold),0 0 0 9999px rgba(8,6,4,.74)}
+  50%{box-shadow:0 0 0 9px var(--gold),0 0 0 9999px rgba(8,6,4,.74)}}
+.tut-callout{position:fixed;z-index:10000;width:320px;max-width:88vw;background:var(--panel);
+  border:2px solid var(--gold);border-radius:12px;padding:13px 15px;box-shadow:0 12px 34px #000c}
+.tut-callout .tc-title{color:var(--gold);font-weight:800;font-size:13px;margin-bottom:7px}
+.tut-callout .tc-body{font-size:13.5px;line-height:1.7;color:var(--ink)}
+.tut-callout .tc-nav{display:flex;gap:8px;margin-top:11px;justify-content:space-between;flex-wrap:wrap}
 
 /* ---------- 教学提示条 ---------- */
 .coach{background:linear-gradient(180deg,#3c3015,#322813);border:1px solid var(--gold);border-radius:9px;
