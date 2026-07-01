@@ -227,13 +227,23 @@
   function renderSites() {
     const bar = $('#sitesBar'); bar.innerHTML = '';
     bar.appendChild(el('span', '', '<b style="color:var(--muted);font-size:12px">场地 Sites：</b>'));
+    const art = useCardArt();
     MATERIAL_LIST.forEach(m => {
       const info = MATERIALS[m], st = G.state.sites[m];
       const chip = el('div', 'site-chip');
       chip.style.borderColor = info.color;
-      chip.innerHTML = `<span class="sname" style="color:${info.color}">${m}</span>
+      const text = `<span class="stext"><span class="sname" style="color:${info.color}">${m}</span>
         <span class="scount">城内 ${st.inTown} · 城外 ${st.out}</span>
-        <span class="sval">${info.zh} · 价值${info.value}</span>`;
+        <span class="sval">${info.zh} · 价值${info.value}</span></span>`;
+      if (art) {
+        const img = el('img', 'site-thumb'); img.src = `assets/sites/${m}.jpg`; img.alt = m;
+        img.onerror = () => { img.remove(); };
+        chip.appendChild(img);
+        chip.insertAdjacentHTML('beforeend', text);
+      } else {
+        chip.innerHTML = text;
+      }
+      chip.title = `${m}：城内剩 ${st.inTown}，城外剩 ${st.out}（${info.zh}，完成需 ${info.value} 材料）`;
       bar.appendChild(chip);
     });
   }
