@@ -255,6 +255,39 @@ body{
   background-image:url('assets/back.jpg');background-size:cover;background-position:center;
   border:2px solid #d8b15a55;border-radius:7px}
 
+/* ---------- 动画引擎：飞行卡 / 翻面 / AI 手部指示器 ---------- */
+.anim-ghost{position:fixed;z-index:99998;pointer-events:none;perspective:900px}
+.anim-ghost-inner{position:relative;width:100%;height:100%;transform-style:preserve-3d;
+  transition:transform .001s;filter:drop-shadow(0 10px 22px rgba(0,0,0,.55))}
+.anim-ghost.flying .anim-ghost-inner{transform:scale(1.06)}
+.anim-ghost.landed .anim-ghost-inner{transform:scale(1)}
+.anim-ghost-inner.is-flipped{transform:rotateY(180deg) scale(1.06)}
+.anim-ghost.landed .anim-ghost-inner.is-flipped{transform:rotateY(180deg) scale(1)}
+.anim-face{position:absolute;inset:0;backface-visibility:hidden;border-radius:7px;overflow:hidden;
+  border:2px solid #0009;background:#fff}
+.anim-face.front{transform:rotateY(0deg)}
+.anim-face.back{transform:rotateY(180deg);background:#171310 url('assets/back.jpg') center/cover;
+  border-color:#d8b15a55}
+.anim-face img{width:100%;height:100%;object-fit:cover;display:block}
+
+.anim-cursor{position:fixed;z-index:99999;pointer-events:none;transform:translate(-50%,-50%);
+  transition:left .34s cubic-bezier(.3,.7,.2,1),top .34s cubic-bezier(.3,.7,.2,1),opacity .2s}
+.anim-cursor.hidden{opacity:0}
+.anim-cursor .ac-dot{display:block;width:26px;height:26px;border-radius:50%;
+  background:radial-gradient(circle at 35% 30%,#f3d68a,#d8b15a 60%,#a5741f 100%);
+  border:2px solid #fff8;box-shadow:0 0 0 5px #d8b15a22,0 3px 10px #000a}
+.anim-cursor.settle .ac-dot{animation:acSettle .5s ease-out}
+@keyframes acSettle{0%{transform:scale(1.6);opacity:.4}60%{transform:scale(.92)}100%{transform:scale(1)}}
+
+.anim-pulse{animation:animPulseKf .56s ease-out}
+@keyframes animPulseKf{0%{box-shadow:0 0 0 0 #d8b15a99}70%{box-shadow:0 0 0 12px #d8b15a00}100%{box-shadow:0 0 0 0 #d8b15a00}}
+
+/* 出牌区：本回合带头/跟随所用的实体牌 */
+.played-slot{min-height:40px;display:flex;align-items:center;gap:6px;margin:4px 0 2px}
+.played-slot .ps-label{font-size:10px;color:var(--muted)}
+.played-slot .ps-cards{display:flex;gap:4px}
+.played-slot .card{width:34px;height:46px}
+
 /* ---------- 互动教学：聚光灯高亮 + 对话气泡 ---------- */
 .tut-spotlight{position:relative !important;z-index:9999 !important;border-radius:8px;
   box-shadow:0 0 0 5px var(--gold),0 0 0 9999px rgba(8,6,4,.74) !important;

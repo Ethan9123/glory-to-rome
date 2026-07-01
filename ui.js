@@ -205,31 +205,237 @@
     driveInteractiveTutorial();
   }
 
-  /* ------------------ AI 自动行动 ------------------ */
+  /* ------------------ 动作动画：捕捉上下文 → 执行 → 差分识别 → 飞行 ------------------ */
+  const ANIM = window.GTR_ANIM;
+  function animOn() { return ANIM && ANIM.isEnabled() && !ui.tut2; } // 教学局用自己的高亮系统，不叠加飞行动画
+  function zoneSnap(G) {
+    const s = G.state;
+    return {
+      hand: s.players.map(p => p.hand.slice()),
+      stock: s.players.map(p => p.stockpile.slice()),
+      vaultLen: s.players.map(p => p.vault.length),
+      client: s.players.map(p => p.clientele.map(c => c.name)),
+      completed: s.players.map(p => p.completed.map(c => c.name)),
+      inProg: s.players.map(p => p.inProgress.map(x => ({ id: x.id, name: x.name, matLen: x.materials.length, material: x.material }))),
+      pool: s.pool.slice(),
+      deckLen: s.deck.length,
+      jackPile: s.jackPile,
+      played: s.players.map(p => { const r = s.played[p.id]; return { cards: r ? r.cards.slice() : [], jacks: r ? r.jacks : 0 }; })
+    };
+  }
+  function captureActionContext(G) {
+    const s = G.state;
+    return {
+      phase: s.phase,
+      pendingType: s.pending ? s.pending.type : null,
+      role: s.phase === 'actions' ? G.currentRole() : null,
+      actor: s.pending ? s.pending.pid : (s.phase === 'lead' ? s.leaderIndex : s.current),
+      handRect: ANIM ? ANIM.rectOf('#hand') : null,
+      poolRect: ANIM ? ANIM.rectOf('#pool') : null,
+      before: zoneSnap(G)
+    };
+  }
+  function delta(before, after) { // 简单差集：after 有而 before 没有的“新增名字”，及反向“消失名字”
+    const b = before.slice(), a = after.slice();
+    const added = [], removed = [];
+    a.forEach(n => { const i = b.indexOf(n); if (i >= 0) b.splice(i, 1); else added.push(n); });
+    b.forEach(n => removed.push(n));
+    return { added, removed };
+  }
+  function campStockRect(pid) { return ANIM && ANIM.rectOf(`.camp[data-owner="${pid}"] .z-stock`); }
+  function campClientRect(pid) { return ANIM && ANIM.rectOf(`.camp[data-owner="${pid}"] .z-client`); }
+  function campVaultRect(pid) { return ANIM && ANIM.rectOf(`.camp[data-owner="${pid}"] .z-vault`); }
+  function campInprogRect(pid) { return ANIM && ANIM.rectOf(`.camp[data-owner="${pid}"] .z-inprog`); }
+  function campCompletedRect(pid) { return ANIM && ANIM.rectOf(`.camp[data-owner="${pid}"] .z-completed`); }
+  function campPlayedRect(pid) { return ANIM && ANIM.rectOf('#played-' + pid); }
+  function cardFaceHTML(name) {
+    if (isJack(name)) return `<div style="width:100%;height:100%;background:#caa23f"></div>`;
+    const tmp = renderCard(name, {});
+    return tmp.outerHTML;
+  }
+  const BACK_HTML = `<div style="width:100%;height:100%"></div>`;
+
+  // 依据“行动前捕捉的上下文” + “行动后的最新状态”，识别本次动作大致是什么物理位移，播放飞行动画
+  function animateFromContext(ctx, G) {
+    if (!animOn()) return Promise.resolve();
+    const after = zoneSnap(G);
+    const pid = ctx.actor;
+    const flights = [];
+    const pushFly = (fromRect, toRect, name, opts) => {
+      if (!fromRect || !toRect) return;
+      flights.push(Object.assign({
+        fromRect, toRect,
+        faceHTML: cardFaceHTML(name), backHTML: BACK_HTML,
+        startFaceDown: false, endFaceDown: false
+      }, opts || {}));
+    };
+    const hidden = (p) => !!(ui.aiSeats && isAI(p)); // 该玩家手牌当前是否隐藏（AI）
+
+    try {
+      if (ctx.pendingType === 'thinker') {
+        // 抽牌 / 取 Jack：牌库/Jack堆 → 手牌，暗牌翻明
+        const d = delta(ctx.before.hand[pid], after.hand[pid]);
+        const srcRect = ANIM.rectOf('#deckCount') || ANIM.rectOf('#jackCount') || ctx.handRect;
+        const destRect = ANIM.rectOf('#hand') || ctx.handRect;
+        d.added.slice(0, 6).forEach((name, i) => {
+          flights.push({ fromRect: srcRect, toRect: destRect, faceHTML: cardFaceHTML(name), backHTML: BACK_HTML,
+            startFaceDown: true, endFaceDown: hidden(pid), duration: 380, _stagger: i * 90 });
+        });
+      } else if (ctx.phase === 'lead' || ctx.phase === 'follow') {
+        const d = delta(ctx.before.hand[pid], after.hand[pid]);
+        const playedGrew = ctx.before.played[pid].cards.length + (after.played[pid].jacks - ctx.before.played[pid].jacks) < after.played[pid].cards.length + after.played[pid].jacks;
+        if (d.removed.length || after.played[pid].jacks > ctx.before.played[pid].jacks) {
+          const destRect = campPlayedRect(pid) || ctx.handRect;
+          d.removed.forEach(name => pushFly(ctx.handRect, destRect, name, { startFaceDown: hidden(pid), endFaceDown: false, duration: 420 }));
+          if (after.played[pid].jacks > ctx.before.played[pid].jacks) pushFly(ctx.handRect, destRect, 'Jack', { startFaceDown: hidden(pid), endFaceDown: false, duration: 420 });
+        }
+      } else if (ctx.role === 'Laborer') {
+        const dp = delta(ctx.before.pool, after.pool);
+        const ds = delta(ctx.before.stock[pid], after.stock[pid]);
+        ds.added.forEach(name => { if (dp.removed.includes(name)) pushFly(ctx.poolRect, campStockRect(pid), name); });
+      } else if (ctx.role === 'Patron') {
+        const dc = delta(ctx.before.client[pid], after.client[pid]);
+        const dp = delta(ctx.before.pool, after.pool);
+        const dh = delta(ctx.before.hand[pid], after.hand[pid]);
+        dc.added.forEach(name => {
+          const destRect = campClientRect(pid);
+          if (dp.removed.includes(name)) pushFly(ctx.poolRect, destRect, name);
+          else if (dh.removed.includes(name)) pushFly(ctx.handRect, destRect, name, { startFaceDown: hidden(pid) });
+          else pushFly(ANIM.rectOf('#deckCount') || ctx.handRect, destRect, name, { startFaceDown: true, endFaceDown: false });
+        });
+      } else if (ctx.role === 'Merchant') {
+        const dv = after.vaultLen[pid] - ctx.before.vaultLen[pid];
+        if (dv > 0) {
+          const ds = delta(ctx.before.stock[pid], after.stock[pid]);
+          const dh = delta(ctx.before.hand[pid], after.hand[pid]);
+          const srcName = ds.removed[0] || dh.removed[0];
+          const srcRect = ds.removed.length ? campStockRect(pid) : ctx.handRect;
+          if (srcName) pushFly(srcRect, campVaultRect(pid), srcName, { endFaceDown: true, duration: 420 });
+        }
+      } else if (ctx.role === 'Legionary') {
+        const ds = delta(ctx.before.stock[pid], after.stock[pid]);
+        ds.added.forEach(name => {
+          const fromPool = delta(ctx.before.pool, after.pool).removed.includes(name);
+          if (fromPool) { pushFly(ctx.poolRect, campStockRect(pid), name); return; }
+          for (let opp = 0; opp < G.state.nPlayers; opp++) {
+            if (opp === pid) continue;
+            const dh = delta(ctx.before.hand[opp], after.hand[opp]);
+            const dso = delta(ctx.before.stock[opp], after.stock[opp]);
+            if (dh.removed.includes(name)) { pushFly(campPlayedRect(opp) ? null : document.querySelector(`.camp[data-owner="${opp}"]`), campStockRect(pid), name, { startFaceDown: hidden(opp) }); break; }
+            if (dso.removed.includes(name)) { pushFly(campStockRect(opp), campStockRect(pid), name); break; }
+          }
+        });
+      } else if (ctx.role === 'Craftsman' || ctx.role === 'Architect') {
+        const beforeIds = new Set(ctx.before.inProg[pid].map(x => x.id));
+        after.inProg[pid].forEach(cur => {
+          const destRect = campInprogRect(pid);
+          if (!beforeIds.has(cur.id)) {
+            // 新奠基：地基永远来自手牌
+            const dh = delta(ctx.before.hand[pid], after.hand[pid]);
+            const foundName = dh.removed.find(n => n === cur.name) || dh.removed[0];
+            if (foundName) pushFly(ctx.handRect, destRect, foundName, { startFaceDown: hidden(pid) });
+          } else {
+            const prev = ctx.before.inProg[pid].find(x => x.id === cur.id);
+            if (prev && cur.matLen > prev.matLen) {
+              const dh = delta(ctx.before.hand[pid], after.hand[pid]);
+              const ds = delta(ctx.before.stock[pid], after.stock[pid]);
+              const dp = delta(ctx.before.pool, after.pool);
+              const matName = dh.removed[0] || ds.removed[0] || dp.removed[0];
+              if (dh.removed[0]) pushFly(ctx.handRect, destRect, dh.removed[0], { startFaceDown: hidden(pid) });
+              else if (ds.removed[0]) pushFly(campStockRect(pid), destRect, ds.removed[0]);
+              else if (dp.removed[0]) pushFly(ctx.poolRect, destRect, dp.removed[0]);
+            }
+          }
+        });
+        // 完成建筑：从“在建”移入“已完成”——落点脉冲庆祝，不做飞行
+        const beforeInNames = ctx.before.inProg[pid].map(x => x.name);
+        const dcompl = delta(ctx.before.completed[pid], after.completed[pid]);
+        if (dcompl.added.length) setTimeout(() => ANIM.pulse(campCompletedRect(pid)), 480);
+      }
+    } catch (e) { /* 动画识别失败时静默跳过，不影响正常游戏 */ }
+
+    if (!flights.length) return Promise.resolve();
+    return Promise.all(flights.map(f => new Promise(res => {
+      setTimeout(() => ANIM.fly(f).then(res), f._stagger || 0);
+    })));
+  }
+
+  /* ------------------ AI 自动行动（光标示意 → 落子 → 飞行动画 → 才排下一步，天然形成人类节奏） ------------------ */
+  function pickAiCursorTarget(ctx) {
+    if (ctx.pendingType === 'thinker') return '#deckCount';
+    if (ctx.phase === 'lead' || ctx.phase === 'follow') return ctx.handRect ? '#hand' : null;
+    if (ctx.role === 'Laborer' || ctx.role === 'Legionary' || ctx.role === 'Patron') return '#pool';
+    if (ctx.role === 'Merchant') return campStockRect(ctx.actor) ? `.camp[data-owner="${ctx.actor}"] .z-stock` : null;
+    if (ctx.role === 'Craftsman' || ctx.role === 'Architect') return '#hand';
+    return null;
+  }
+  let _aiTickRunning = false; // 硬互斥锁：保证 aiTick 绝不重入并发执行（scheduleAI 可能从多处被调用）
   function scheduleAI() {
     if (!G || G.state.over) return;
     const owner = decisionOwner();
     if (owner < 0 || !isAI(owner)) return;
-    if (ui.aiBusy) return;
+    if (ui.aiBusy || ui.animBusy || _aiTickRunning) return;   // 动画播放中不重复排程，播完后由 aiTick 自己续排
     ui.aiBusy = true;
     const humans = G.state.nPlayers - ui.aiSeats.size;
-    setTimeout(aiTick, humans === 0 ? 160 : 420);   // 全 AI 观战时加速
+    setTimeout(aiTick, humans === 0 ? 130 : 260);   // 全 AI 观战时加速；真实节奏主要由动画时长本身决定
   }
   function aiTick() {
+    if (_aiTickRunning) return; // 双保险：即使被意外重复调度，也绝不并发执行
+    _aiTickRunning = true;
     ui.aiBusy = false;
-    if (!G || G.state.over) { render(); return; }
+    if (!G || G.state.over) { _aiTickRunning = false; render(); return; }
     const owner = decisionOwner();
-    if (owner < 0 || !isAI(owner)) { render(); return; }
+    if (owner < 0 || !isAI(owner)) { _aiTickRunning = false; render(); return; }
+    const ctx = captureActionContext(G);
+    const cursorTarget = pickAiCursorTarget(ctx);
+    const spectate = (G.state.nPlayers - ui.aiSeats.size) === 0;
+    ui.animBusy = true;
+    _animStuckSince = null; // 每个 tick 独立计时，避免把“连续多个正常 tick”误判为单次卡死
+    const done = () => { ui.animBusy = false; _aiTickRunning = false; scheduleAI(); };
     try {
-      if (!(window.GTR_AI && GTR_AI.available() && !ui.aiNoModel && GTR_AI.act(G, ui.aiDifficulty))) {
-        // 无模型时回退随机
-        GTR_AI.resolvePending(G);
-        const mvs = GTR_AI.legalMoves(G);
-        if (mvs.length) GTR_AI.applyMove(G, mvs[Math.floor(Math.random() * mvs.length)]);
-      }
-    } catch (e) { console.error('AI error', e); }
-    render();
+      const cursorP = (animOn() && cursorTarget)
+        ? ANIM.cursorMoveTo(cursorTarget, { pause: spectate ? 220 : 340 })
+        : Promise.resolve();
+      Promise.resolve(cursorP).catch(() => {}).then(() => {
+        try {
+          if (!(window.GTR_AI && GTR_AI.available() && !ui.aiNoModel && GTR_AI.act(G, ui.aiDifficulty))) {
+            // 无模型时回退随机
+            GTR_AI.resolvePending(G);
+            const mvs = GTR_AI.legalMoves(G);
+            if (mvs.length) GTR_AI.applyMove(G, mvs[Math.floor(Math.random() * mvs.length)]);
+          }
+        } catch (e) { console.error('AI error', e); }
+        render(); // 真实状态已经瞬间更新，接下来的飞行动画只是“盖”在上面演给人看
+        if (ANIM) ANIM.cursorHide();
+        let animP;
+        try { animP = animateFromContext(ctx, G); } catch (e) { console.error('anim sync error', e); animP = Promise.resolve(); }
+        // 看门狗：动画逻辑万一挂起，1.5s 后强制放行，绝不永久卡死游戏循环
+        Promise.race([
+          Promise.resolve(animP).catch(e => console.error('anim error', e)),
+          new Promise(res => setTimeout(res, 1400))
+        ]).then(done).catch(done);
+      });
+    } catch (e) {
+      console.error('aiTick sync error', e);
+      done();
+    }
   }
+  // 独立看门狗：即使动画的 Promise 链因未知原因真的卡死，也绝不允许游戏永久冻结
+  let _animStuckSince = null;
+  setInterval(() => {
+    if (!G || G.state.over) { _animStuckSince = null; return; }
+    if (ui.animBusy) {
+      if (_animStuckSince == null) _animStuckSince = Date.now();
+      else if (Date.now() - _animStuckSince > 2200) {
+        console.warn('[动画看门狗] 检测到动作动画卡死，强制恢复游戏循环');
+        ui.animBusy = false; ui.aiBusy = false; _aiTickRunning = false;
+        if (ANIM) { ANIM.cursorHide(); }
+        document.querySelectorAll('.anim-ghost').forEach(g => g.remove());
+        _animStuckSince = null;
+        scheduleAI();
+      }
+    } else _animStuckSince = null;
+  }, 500);
 
   function phaseText() {
     const s = G.state;
@@ -328,6 +534,7 @@
     const s = G.state, owner = decisionOwner();
     s.players.forEach(p => {
       const camp = el('div', 'camp');
+      camp.dataset.owner = p.id;
       if (p.id === owner) camp.classList.add('active');
       if (p.id === s.leaderIndex) camp.classList.add('leader');
       // 头部
@@ -336,10 +543,22 @@
         <span class="camp-infl">影响力 <b>${p.influence}</b> · 随从 ${p.clientele.length}/${G.clienteleLimit(p.id)} · 金库 ${p.vault.length}/${G.vaultLimit(p.id)} · 手牌 ${p.hand.length}</span>`;
       camp.appendChild(head);
 
+      // 本回合出牌区（带头/跟随所用的实体牌，飞行动画的落点）
+      const playedRec = s.played && s.played[p.id];
+      const psSlot = el('div', 'played-slot'); psSlot.id = 'played-' + p.id;
+      if (playedRec && (playedRec.cards.length || playedRec.jacks)) {
+        const cardsWrap = el('div', 'ps-cards');
+        playedRec.cards.forEach(c => cardsWrap.appendChild(renderCard(c, { mini: true })));
+        for (let k = 0; k < playedRec.jacks; k++) cardsWrap.appendChild(renderCard('Jack', { mini: true }));
+        psSlot.innerHTML = '<span class="ps-label">出牌</span>';
+        psSlot.appendChild(cardsWrap);
+      }
+      camp.appendChild(psSlot);
+
       // 完成的建筑
       const cz = el('div', 'subzone');
       cz.appendChild(el('div', 'sz-label', `已完成建筑 (${p.completed.length})`));
-      const cr = el('div', 'structrow');
+      const cr = el('div', 'structrow z-completed');
       p.completed.forEach((st, i) => cr.appendChild(renderStruct(st, { owner: p.id, index: i, completed: true })));
       if (!p.completed.length) cr.appendChild(hintSpan('—'));
       cz.appendChild(cr); camp.appendChild(cz);
@@ -347,7 +566,7 @@
       // 在建
       const iz = el('div', 'subzone');
       iz.appendChild(el('div', 'sz-label', `在建 (${p.inProgress.length})`));
-      const ir = el('div', 'structrow');
+      const ir = el('div', 'structrow z-inprog');
       p.inProgress.forEach((st) => ir.appendChild(renderStruct(st, { owner: p.id, inprog: true })));
       if (!p.inProgress.length) ir.appendChild(hintSpan('—'));
       iz.appendChild(ir); camp.appendChild(iz);
@@ -355,7 +574,7 @@
       // 随从
       const clz = el('div', 'subzone');
       clz.appendChild(el('div', 'sz-label', `随从 Clientele (${p.clientele.length})`));
-      const clr = el('div', 'structrow');
+      const clr = el('div', 'structrow z-client');
       p.clientele.forEach((cl, i) => {
         const m = matForRole(cl.role);
         const chip = el('div', 'struct');
@@ -376,7 +595,7 @@
       // 库存 + 金库
       const mz = el('div', 'subzone');
       mz.appendChild(el('div', 'sz-label', `库存 Stockpile (${p.stockpile.length}) · 金库 Vault (${p.vault.length})`));
-      const mr = el('div', 'structrow');
+      const mr = el('div', 'structrow z-stock');
       // 库存按材料分组成 chip
       const stockSel = ui.act && (ui.act.mode === 'merchantPick' || ui.act.mode === 'archFill' || ui.act.mode === 'stairwaySource') && p.id === owner;
       const byMat = {};
@@ -392,7 +611,7 @@
       });
       if (!p.stockpile.length) mr.appendChild(hintSpan('库存空'));
       // 金库（背面）
-      const vchip = el('div', 'struct'); vchip.style.background = '#3a2f22'; vchip.style.color = 'var(--gold)';
+      const vchip = el('div', 'struct z-vault'); vchip.style.background = '#3a2f22'; vchip.style.color = 'var(--gold)';
       vchip.innerHTML = `金库 ×${p.vault.length}`; vchip.title = '金库内容对所有人隐藏';
       mr.appendChild(vchip);
       mz.appendChild(mr); camp.appendChild(mz);
