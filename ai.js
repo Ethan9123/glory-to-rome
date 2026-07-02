@@ -242,7 +242,13 @@
       case 'patron': return G.doPatron({ index: mv.pool });
       case 'merchant': return G.doMerchant({ index: mv.stock });
       case 'legionary': return G.doLegionary({ material: mv.material });
-      case 'found': return G.layFoundation(mv.role, { handIndex: mv.index });
+      case 'found': {
+        const actor = G.P(decisionPid(G));
+        const opts = { handIndex: mv.index };
+        // Statue 需显式指定 Site；与 Python 训练引擎一致，放到其自身材料(Marble)的场地
+        if (actor && actor.hand[mv.index] === 'Statue') opts.statueSite = 'Marble';
+        return G.layFoundation(mv.role, opts);
+      }
       case 'fill': return G.addMaterial(mv.role, mv.src === 'stock'
         ? { index: mv.index, structureId: mv.sid, source: 'stockpile' }
         : { index: mv.index, structureId: mv.sid });
@@ -334,6 +340,7 @@
     return vec;
   }
   function mctsAct(G, pid, sims, nDet, c) {
+    if (!ensure()) return legalMoves(G)[0];  // 模型未载入时兜底，避免直接调用崩溃
     const per = Math.max(1, Math.floor(sims / nDet)); const agg = {}, rep = {};
     for (let d = 0; d < nDet; d++) {
       const root = makeNode(determinizeJS(G, pid));
@@ -356,25 +363,33 @@
     if (!moves.length) return false;
     if (moves.length === 1) { applyMove(G, moves[0]); return true; }
     difficulty = difficulty || 'normal';
+    let chosen;
     if (difficulty === 'hard' && G.state.nPlayers === 2) {   // MCTS（仅2人）
-      applyMove(G, mctsAct(G, pid, 48, 4, 1.4)); return true;
-    }
-    const sd = normalizeLive(G, pid), h = trunkOf(encodeState(sd));
-    const scores = moves.map(m => scoreMove(h, encodeMove(sd, m)));
-    let idx = 0;
-    if (difficulty === 'easy') {           // 35% 纯随机 + 高温采样：明显更弱，适合新手
-      if (Math.random() < 0.35) {
-        idx = Math.floor(Math.random() * moves.length);
-      } else {
-        const T = 1.7, ex = scores.map(s => Math.exp(s / T)), sum = ex.reduce((a, b) => a + b, 0);
-        let r = Math.random() * sum, acc = 0;
-        for (let i = 0; i < ex.length; i++) { acc += ex[i]; if (r <= acc) { idx = i; break; } }
+      chosen = mctsAct(G, pid, 112, 7, 1.4);
+    } else {
+      const sd = normalizeLive(G, pid), h = trunkOf(encodeState(sd));
+      const scores = moves.map(m => scoreMove(h, encodeMove(sd, m)));
+      let idx = 0;
+      if (difficulty === 'easy') {           // 35% 纯随机 + 高温采样：明显更弱，适合新手
+        if (Math.random() < 0.35) {
+          idx = Math.floor(Math.random() * moves.length);
+        } else {
+          const T = 1.7, ex = scores.map(s => Math.exp(s / T)), sum = ex.reduce((a, b) => a + b, 0);
+          let r = Math.random() * sum, acc = 0;
+          for (let i = 0; i < ex.length; i++) { acc += ex[i]; if (r <= acc) { idx = i; break; } }
+        }
+      } else {                                // normal: 贪婪；hard(≥3人): 也用贪婪
+        let bs = -Infinity;
+        for (let i = 0; i < scores.length; i++) if (scores[i] > bs) { bs = scores[i]; idx = i; }
       }
-    } else {                                // normal: 贪婪；hard(≥3人): 也用贪婪
-      let bs = -Infinity;
-      for (let i = 0; i < scores.length; i++) if (scores[i] > bs) { bs = scores[i]; idx = i; }
+      chosen = moves[idx];
     }
-    applyMove(G, moves[idx]);
+    const r = applyMove(G, chosen);
+    if (r && r.ok === false) {
+      // 兜底：所选动作被引擎拒绝时，退而求其次（结束动作/思考），绝不原地空转
+      const fb = moves.find(m => m.type === 'end_actor') || moves.find(m => m.type === 'think') || moves[0];
+      if (fb !== chosen) applyMove(G, fb);
+    }
     return true;
   }
 
