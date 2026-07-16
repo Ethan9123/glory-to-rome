@@ -12,10 +12,35 @@
   const roleOf = c => (isJack(c) ? null : CARDS.MATERIALS[CARDS.BY_NAME[c].material].role);
 
   let M = null, NAME_IDX, MAT_IDX, ROLE_IDX, PH_IDX, MT_IDX, TC_IDX, MATS, NB;
+  // 把层权重统一解包成扁平 Float32Array（q8 格式先反量化；扁平数组也比嵌套数组推理更快）
+  function unpackLayer(layer) {
+    if (layer.q != null) {           // int8 + base64（每输出行一个 scale）
+      const bin = atob(layer.q);
+      const rows = layer.rows, cols = layer.cols;
+      const W = new Float32Array(rows * cols);
+      for (let r = 0; r < rows; r++) {
+        const s = layer.s[r], off = r * cols;
+        for (let c = 0; c < cols; c++) {
+          let v = bin.charCodeAt(off + c) & 0xFF;
+          if (v > 127) v -= 256;
+          W[off + c] = v * s;
+        }
+      }
+      return { W, b: Float32Array.from(layer.b), rows, cols };
+    }
+    // 旧版全精度嵌套数组格式
+    const rows = layer.W.length, cols = layer.W[0].length;
+    const W = new Float32Array(rows * cols);
+    for (let r = 0; r < rows; r++) W.set(layer.W[r], r * cols);
+    return { W, b: Float32Array.from(layer.b), rows, cols };
+  }
   function ensure() {
     if (M) return true;
     M = global.GTR_AI_MODEL;
     if (!M) return false;
+    M.trunk = M.trunk.map(unpackLayer);
+    M.value = M.value.map(unpackLayer);
+    M.move = M.move.map(unpackLayer);
     const idx = M.idx;
     NAME_IDX = {}; idx.NAMES.forEach((n, i) => NAME_IDX[n] = i);
     MAT_IDX = {}; idx.MATERIALS.forEach((n, i) => MAT_IDX[n] = i);
@@ -102,19 +127,25 @@
     return Float32Array.from(f);
   }
 
-  // ---------- 前向（MLP）----------
+  // ---------- 前向（MLP，扁平权重布局）----------
   function linRelu(layer, x) {
-    const W = layer.W, b = layer.b, out = new Float32Array(W.length);
-    for (let o = 0; o < W.length; o++) {
-      let s = b[o]; const Wo = W[o];
-      for (let i = 0; i < x.length; i++) s += Wo[i] * x[i];
+    const W = layer.W, b = layer.b, rows = layer.rows, cols = layer.cols;
+    const out = new Float32Array(rows);
+    for (let o = 0; o < rows; o++) {
+      let s = b[o]; const off = o * cols;
+      for (let i = 0; i < cols; i++) s += W[off + i] * x[i];
       out[o] = s > 0 ? s : 0;
     }
     return out;
   }
   function linRaw(layer, x) {
-    const W = layer.W, b = layer.b, out = new Float32Array(W.length);
-    for (let o = 0; o < W.length; o++) { let s = b[o]; const Wo = W[o]; for (let i = 0; i < x.length; i++) s += Wo[i] * x[i]; out[o] = s; }
+    const W = layer.W, b = layer.b, rows = layer.rows, cols = layer.cols;
+    const out = new Float32Array(rows);
+    for (let o = 0; o < rows; o++) {
+      let s = b[o]; const off = o * cols;
+      for (let i = 0; i < cols; i++) s += W[off + i] * x[i];
+      out[o] = s;
+    }
     return out;
   }
   function trunkOf(sv) {

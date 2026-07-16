@@ -96,7 +96,7 @@
     DIFFS.forEach(([k, label]) => {
       const b = el('button', k === ui.aiDifficulty ? 'active' : '', label);
       b.style.width = 'auto'; b.style.padding = '0 12px';
-      b.onclick = () => { ui.aiDifficulty = k; initSetup(); };
+      b.onclick = () => { ui.aiDifficulty = k; saveSettings(); initSetup(); };
       db.appendChild(b);
     });
     $('#diffHint').textContent = ui.aiDifficulty === 'hard'
@@ -109,6 +109,125 @@
       ni.appendChild(inp);
     }
   }
+  /* ================= 本地存档 & 设置持久化 =================
+     注意两个坑：
+       1) engine 的 rng 是闭包函数，不可序列化 —— 但它只在构造时 shuffle 用过一次
+          （engine.js 里 shuffle 的唯一调用点），之后再不调用，故还原时给新 rng 完全安全，
+          牌堆顺序本来就存在 state.deck 里。
+       2) state.publicPowers 是 Set，JSON.stringify 会把它变成 {} —— 必须手动转数组再还原。 */
+  const LS_SET = 'gtr_settings_v1', LS_GAME = 'gtr_save_v1';
+  function lsGet(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }
+  function lsDel(k) { try { localStorage.removeItem(k); } catch (e) { } }
+
+  function saveSettings() {
+    lsSet(LS_SET, { soundOn: ui.soundOn, aiDifficulty: ui.aiDifficulty, handoffEnabled: ui.handoffEnabled });
+  }
+  function loadSettings() {
+    const s = lsGet(LS_SET); if (!s) return;
+    if (typeof s.soundOn === 'boolean') ui.soundOn = s.soundOn;
+    if (s.aiDifficulty) ui.aiDifficulty = s.aiDifficulty;
+    if (typeof s.handoffEnabled === 'boolean') ui.handoffEnabled = s.handoffEnabled;
+  }
+
+  // 必须深拷贝：Object.assign 只做浅拷贝，players 等嵌套对象会是活引用，
+  // 存进悔棋栈后仍会随对局继续变化（存 localStorage 时 JSON.stringify 恰好掩盖了这个问题）。
+  function serializeState(st) {
+    const o = Object.assign({}, st);
+    o.publicPowers = Array.from(st.publicPowers || []);   // Set → 数组（JSON 不认识 Set）
+    o.log = (st.log || []).slice(-60);                    // 日志只留尾部，控制体积
+    return (typeof structuredClone === 'function') ? structuredClone(o) : JSON.parse(JSON.stringify(o));
+  }
+  function deserializeState(o) {
+    const st = Object.assign({}, o);
+    st.publicPowers = new Set(o.publicPowers || []);      // 数组 → Set
+    return st;
+  }
+  function saveGame() {
+    if (!G || G.state.over || ui.tut2) return;            // 教学局/已结束不存
+    lsSet(LS_GAME, {
+      t: Date.now(), state: serializeState(G.state),
+      aiSeats: Array.from(ui.aiSeats || []), aiDifficulty: ui.aiDifficulty,
+      handoffEnabled: ui.handoffEnabled, beginner: !!ui.beginner,
+      structSeq: G._structSeq
+    });
+  }
+  function restoreGame(sv) {
+    G = Object.create(ENGINE.Game.prototype);
+    G.rng = Math.random;                 // 安全：rng 仅构造期 shuffle 用过
+    G._structSeq = sv.structSeq || 0;
+    G.state = deserializeState(sv.state);
+    ui.aiSeats = new Set(sv.aiSeats || []);
+    ui.aiDifficulty = sv.aiDifficulty || ui.aiDifficulty;
+    ui.handoffEnabled = !!sv.handoffEnabled;
+    ui.beginner = !!sv.beginner;
+    ui.revealedFor = -1; ui.sel = []; ui.act = null; ui.aiBusy = false;
+    ui.animBusy = false; ui._gameOverSoundPlayed = false; ui.undoStack = [];
+  }
+
+  /* ---- 悔棋：每到一个新的人类决策点就压快照（用指纹去重，避免局部重绘反复入栈）---- */
+  function stateFp() {
+    const s = G.state;
+    return [s.turnNo, s.phase, s.current, s.leaderIndex, s.pending ? s.pending.type + s.pending.pid : '-',
+      s.deck.length, s.pool.length,
+      s.players.map(p => [p.hand.length, p.influence, p.stockpile.length, p.clientele.length,
+        p.completed.length, p.inProgress.length].join(',')).join('|')].join('/');
+  }
+  function pushUndo(fp) {
+    ui.undoStack = ui.undoStack || [];
+    ui.undoStack.push({ fp, state: serializeState(G.state), structSeq: G._structSeq });
+    if (ui.undoStack.length > 20) ui.undoStack.shift();   // 限制内存
+  }
+  // 栈顶 == 当前决策点，所以要退回上一步需要栈里至少有 2 个
+  function canUndo() {
+    return !!(ui.undoStack && ui.undoStack.length >= 2 && !ui.aiBusy && !ui.animBusy
+      && G && !G.state.over && !ui.tut2);
+  }
+  function doUndo() {
+    if (!canUndo()) return;
+    ui.undoStack.pop();                    // 丢弃"当前"快照
+    const prev = ui.undoStack.pop();       // 回到上一个人类决策点（render 会自动重新压回）
+    G.state = deserializeState(prev.state);
+    G._structSeq = prev.structSeq;
+    ui.sel = []; ui.act = null;
+    SFX.click(); saveGame(); render();
+  }
+  // 按钮可用性依赖 aiBusy/animBusy，而这两个标志在 render 之后才清除，
+  // 所以除了 render 里刷新，AI 回合结束时也必须再刷一次，否则按钮会停在过期的禁用态。
+  function refreshUndoBtn() {
+    const ub = $('#undoBtn'); if (!ub) return;
+    const ok = canUndo();
+    ub.disabled = !ok; ub.style.opacity = ok ? '' : '.4';
+  }
+  // 在人类决策点记录快照 + 自动存档（由 render 末尾调用）
+  let _lastSaveFp = null;
+  function trackProgress() {
+    if (!G || G.state.over || ui.tut2) return;
+    const owner = decisionOwner();
+    const fp = stateFp();
+    if (owner >= 0 && !isAI(owner)) {
+      const top = ui.undoStack && ui.undoStack[ui.undoStack.length - 1];
+      if (!top || top.fp !== fp) pushUndo(fp);
+    }
+    if (fp !== _lastSaveFp) { _lastSaveFp = fp; saveGame(); }
+  }
+
+  function hasSave() {
+    const sv = lsGet(LS_GAME);
+    return sv && sv.state && !sv.state.over ? sv : null;
+  }
+  function refreshResumeBtn() {
+    const btn = $('#resumeBtn'); if (!btn) return;
+    const sv = hasSave();
+    if (!sv) { btn.classList.add('hidden'); return; }
+    btn.classList.remove('hidden');
+    const mins = Math.max(1, Math.round((Date.now() - (sv.t || 0)) / 60000));
+    const when = mins < 60 ? `${mins} 分钟前` : `${Math.round(mins / 60)} 小时前`;
+    btn.textContent = `▶ 继续上局（第 ${sv.state.turnNo} 回合 · ${when}）`;
+  }
+
+  loadSettings();
+
   $('#startBtn').onclick = async () => {
     const human = playerCount - aiCount;
     const names = [];
@@ -126,6 +245,21 @@
     G = new ENGINE.Game(names, {});
     if (ui.beginner) G.state.beginner = true;
     ui.revealedFor = -1; ui.sel = []; ui.act = null; ui.aiBusy = false; ui._gameOverSoundPlayed = false;
+    ui.undoStack = [];
+    lsDel(LS_GAME);                       // 开新局：丢弃旧存档
+    saveSettings();
+    $('#setup').classList.add('hidden');
+    $('#game').classList.remove('hidden');
+    render();
+  };
+  $('#resumeBtn').onclick = async () => {
+    const sv = hasSave(); if (!sv) { refreshResumeBtn(); return; }
+    if ((sv.aiSeats || []).length) {
+      const b = $('#resumeBtn'); b.textContent = '正在载入 AI 模型…'; b.disabled = true;
+      ui.aiNoModel = !(await ensureAIModel());
+      b.disabled = false;
+    }
+    restoreGame(sv);
     $('#setup').classList.add('hidden');
     $('#game').classList.remove('hidden');
     render();
@@ -133,8 +267,10 @@
   $('#tutorialBtn').onclick = () => showTutorial(0);
   $('#interactiveTutBtn').onclick = () => startInteractiveTutorial();
   initSetup();
+  refreshResumeBtn();
 
   /* ------------------ 顶部按钮 ------------------ */
+  $('#undoBtn').onclick = doUndo;
   $('#refBtn').onclick = showRef;
   $('#logBtn').onclick = showLog;
   $('#menuBtn').onclick = showMenu;
@@ -196,7 +332,10 @@
     renderHand();
     renderCoach();
     // 结束
-    if (s.over) { showGameOver(); }
+    if (s.over) { showGameOver(); lsDel(LS_GAME); }   // 终局：清掉存档，避免"继续上局"进到死局
+    // 悔棋快照 + 自动存档
+    trackProgress();
+    refreshUndoBtn();
     // 交接遮罩
     maybeHandoff();
     // AI 行动调度
@@ -391,7 +530,7 @@
     const spectate = (G.state.nPlayers - ui.aiSeats.size) === 0;
     ui.animBusy = true;
     _animStuckSince = null; // 每个 tick 独立计时，避免把“连续多个正常 tick”误判为单次卡死
-    const done = () => { ui.animBusy = false; _aiTickRunning = false; scheduleAI(); };
+    const done = () => { ui.animBusy = false; _aiTickRunning = false; refreshUndoBtn(); scheduleAI(); };
     try {
       const cursorP = (animOn() && cursorTarget)
         ? ANIM.cursorMoveTo(cursorTarget, { pause: spectate ? 220 : 340 })
@@ -693,7 +832,53 @@
     if (opts.zone != null) { card.dataset.z = opts.zone; card.dataset.i = opts.index; if (opts.owner != null) card.dataset.o = opts.owner; }
     if (opts.selectable) card.classList.add('selectable');
     if (opts.selected) card.classList.add('selected');
+    attachPeek(card, c);
     return card;
+  }
+
+  /* ---- 卡牌详情预览：触屏长按 / 桌面右键（触屏没有 hover，放大看牌得有替代入口）---- */
+  function showCardPeek(c) {
+    if ($('.cardpeek')) return;
+    const ov = el('div', 'cardpeek');
+    if (useCardArt()) {
+      const img = el('img'); img.src = cardImgPath(c); img.alt = c; img.draggable = false;
+      img.onerror = () => { img.remove(); };
+      ov.appendChild(img);
+    }
+    let info;
+    if (isJack(c)) info = `<b>Jack</b><br>可带头或跟随任意角色（不能用于思考者）。`;
+    else {
+      const b = BY_NAME[c], m = MATERIALS[b.material];
+      info = `<b>${c}</b><br>角色：${ROLE_ZH[b.role]} (${b.role})<br>
+        材料：${matShapeHTML(b.material)} ${m.zh} ${b.material} · 价值 ${b.value}<br>功能：${b.zh}`;
+    }
+    ov.appendChild(el('div', 'peek-info', info));
+    ov.appendChild(el('div', 'peek-hint', '点击任意处关闭'));
+    const close = (e) => { if (e) { e.preventDefault(); e.stopPropagation(); } ov.remove(); };
+    ov.addEventListener('click', close);
+    ov.addEventListener('touchstart', close, { passive: false });
+    document.body.appendChild(ov);
+  }
+  function attachPeek(card, c) {
+    // 桌面右键
+    card.addEventListener('contextmenu', (e) => { e.preventDefault(); showCardPeek(c); });
+    // 触屏长按 500ms；移动超过 10px 视为滚动，取消
+    let timer = null, sx = 0, sy = 0, fired = false;
+    const clear = () => { if (timer) clearTimeout(timer); timer = null; card.classList.remove('pressing'); };
+    card.addEventListener('touchstart', (e) => {
+      const t = e.touches[0]; sx = t.clientX; sy = t.clientY; fired = false;
+      card.classList.add('pressing');
+      timer = setTimeout(() => { fired = true; card.classList.remove('pressing'); showCardPeek(c); }, 500);
+    }, { passive: true });
+    card.addEventListener('touchmove', (e) => {
+      const t = e.touches[0];
+      if (Math.abs(t.clientX - sx) > 10 || Math.abs(t.clientY - sy) > 10) clear();
+    }, { passive: true });
+    card.addEventListener('touchend', (e) => {
+      clear();
+      if (fired) { e.preventDefault(); }   // 长按已展示预览：不再触发点击（避免误选牌）
+    });
+    card.addEventListener('touchcancel', clear, { passive: true });
   }
   function shade(hex) { // 角色行用更深的色
     try { const n = parseInt(hex.slice(1), 16); let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
@@ -1698,7 +1883,7 @@
     body.appendChild(cch);
     body.appendChild(el('div', '', '<div style="height:8px"></div>'));
     const sch = el('label', '', `<input type="checkbox" ${ui.soundOn ? 'checked' : ''}> 🔊 音效`);
-    sch.querySelector('input').onchange = e => { ui.soundOn = e.target.checked; if (ui.soundOn) SFX.click(); };
+    sch.querySelector('input').onchange = e => { ui.soundOn = e.target.checked; saveSettings(); if (ui.soundOn) SFX.click(); };
     body.appendChild(sch);
     body.appendChild(el('div', '', '<div style="height:10px"></div>'));
     body.appendChild(btn('📖 打开新手教程', 'btn gold', () => { ov.classList.add('hidden'); showTutorial(0); }));

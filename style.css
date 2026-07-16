@@ -196,11 +196,33 @@ body{
 .card.img.mini{width:62px;height:87px}
 .hand .card.img{width:104px;height:146px}
 .card.img.selectable{cursor:pointer}
-.card.img:hover{transform:scale(2.05);z-index:80;box-shadow:0 12px 34px #000d}
-.hand .card.img:hover{transform:scale(2.15);transform-origin:center bottom}
-#pool .card.img:hover{transform-origin:center top}
+/* 悬停放大只在真正有 hover 的设备启用；触屏改用长按预览（否则触屏上会残留"粘滞"的放大态） */
+@media (hover: hover) and (pointer: fine) {
+  .card.img:hover{transform:scale(2.05);z-index:80;box-shadow:0 12px 34px #000d}
+  .hand .card.img:hover{transform:scale(2.15);transform-origin:center bottom}
+  #pool .card.img:hover{transform-origin:center top}
+  .card.img.selected:hover{transform:scale(2.05)}
+}
 .card.img.selected{outline:3px solid var(--gold);outline-offset:1px}
-.card.img.selected:hover{transform:scale(2.05)}
+/* 长按中的视觉反馈 */
+.card.img.pressing{transform:scale(.94);filter:brightness(1.15)}
+
+/* 继续上局按钮 */
+.resume-btn{background:linear-gradient(180deg,#2f4a2c,#243a22);border-color:#5c8a52;color:#d8f0d0;margin-top:8px}
+.resume-btn:hover{border-color:#7fb872}
+
+/* 触屏长按 / 右键：卡牌详情预览 */
+.cardpeek{position:fixed;inset:0;z-index:99997;background:#000b;display:flex;
+  align-items:center;justify-content:center;flex-direction:column;gap:10px;padding:16px;
+  animation:peekIn .14s ease-out}
+@keyframes peekIn{from{opacity:0}to{opacity:1}}
+.cardpeek img{max-width:min(88vw,340px);max-height:62vh;border-radius:10px;
+  box-shadow:0 18px 50px #000e;border:2px solid #0009}
+.cardpeek .peek-fallback{max-width:min(88vw,340px)}
+.cardpeek .peek-info{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:10px 14px;max-width:min(92vw,380px);font-size:13px;line-height:1.55;color:var(--ink)}
+.cardpeek .peek-info b{color:var(--gold)}
+.cardpeek .peek-hint{color:var(--muted);font-size:11px}
 
 /* 顶栏牌库背面缩略 */
 .deckmini{height:26px;border-radius:4px;border:1px solid var(--line);vertical-align:middle;margin-right:4px}
@@ -312,4 +334,8 @@ body{
   #playersZone{grid-template-columns:1fr}
   .hand .card.img{width:88px;height:123px}
   .zonemap{grid-template-columns:1fr}
+  /* 触摸目标 >= 44px（手指点击的可用性下限），并留出更大间距防误触 */
+  #actionbar button{min-height:44px;padding:0 14px}
+  .mini-btn{min-height:40px;padding:0 12px}
+  #actionbar{gap:8px}
 }
