@@ -1,4 +1,4 @@
-# Exclude repository metadata and local secrets from public static assets.
+# Exclude repository metadata, local secrets, and deployment tooling.
 **/.git
 **/.env
 **/.env.*
@@ -6,3 +6,9 @@
 **/.docker
 **/.hg
 **/.svn
+**/.wrangler
+**/node_modules
+**/.DS_Store
+wrangler.jsonc
+wrangler.json
+wrangler.toml
