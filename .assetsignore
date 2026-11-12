@@ -12,3 +12,5 @@
 wrangler.jsonc
 wrangler.json
 wrangler.toml
+**/.dev.vars
+**/.dev.vars.*
