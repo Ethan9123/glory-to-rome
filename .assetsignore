@@ -1,0 +1,16 @@
+# Exclude repository metadata, local secrets, and deployment tooling.
+**/.git
+**/.env
+**/.env.*
+**/.aws
+**/.docker
+**/.hg
+**/.svn
+**/.wrangler
+**/node_modules
+**/.DS_Store
+wrangler.jsonc
+wrangler.json
+wrangler.toml
+**/.dev.vars
+**/.dev.vars.*
